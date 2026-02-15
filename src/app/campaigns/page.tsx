@@ -57,6 +57,12 @@ export default function CampaignsPage() {
     const [showWaModal, setShowWaModal] = useState(false);
     const [waMarked, setWaMarked] = useState<Set<string>>(new Set());
 
+    // Test Email
+    const [showTestModal, setShowTestModal] = useState<string | null>(null);
+    const [testEmail, setTestEmail] = useState('');
+    const [testSending, setTestSending] = useState(false);
+    const [testResult, setTestResult] = useState<{ success: boolean; error?: string; subject?: string } | null>(null);
+
     // Form — Wizard
     const [step, setStep] = useState(1);
     const [name, setName] = useState('');
@@ -164,6 +170,25 @@ export default function CampaignsPage() {
         });
     };
 
+    const handleTestSend = async (campaignId: string) => {
+        if (!testEmail) return;
+        setTestSending(true);
+        setTestResult(null);
+        try {
+            const res = await fetch(`/api/campaigns/${campaignId}/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: testEmail }),
+            });
+            const data = await res.json();
+            setTestResult(data);
+        } catch (err) {
+            setTestResult({ success: false, error: String(err) });
+        } finally {
+            setTestSending(false);
+        }
+    };
+
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'DRAFT': return 'badge-new';
@@ -265,6 +290,14 @@ export default function CampaignsPage() {
                                                 >
                                                     {sending === camp.id ? '⏳ Preparing...' : camp.channel === 'whatsapp' ? '📱 Send via WhatsApp' : '📤 Send'}
                                                 </button>
+                                                {camp.channel === 'email' && camp.template && (
+                                                    <button
+                                                        className="btn btn-secondary btn-sm"
+                                                        onClick={() => { setShowTestModal(camp.id); setTestEmail(''); setTestResult(null); }}
+                                                    >
+                                                        🧪 Test Email
+                                                    </button>
+                                                )}
                                                 <div className="text-xs text-muted">
                                                     {new Date(camp.createdAt).toLocaleDateString()}
                                                 </div>
@@ -553,6 +586,53 @@ export default function CampaignsPage() {
                                     {waMarked.size} of {waLinks.length} contacted
                                 </div>
                                 <button className="btn btn-ghost" onClick={() => setShowWaModal(false)}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Test Email Modal */}
+                {showTestModal && (
+                    <div className="modal-overlay" onClick={() => setShowTestModal(null)}>
+                        <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <h3 style={{ fontWeight: 700 }}>🧪 Send Test Email</h3>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowTestModal(null)}>✕</button>
+                            </div>
+                            <div className="modal-body">
+                                <div className="flex flex-col gap-lg">
+                                    <div className="form-group">
+                                        <label className="form-label">Recipient Email</label>
+                                        <input
+                                            className="form-input"
+                                            type="email"
+                                            value={testEmail}
+                                            onChange={e => setTestEmail(e.target.value)}
+                                            placeholder="your@email.com"
+                                        />
+                                        <div className="text-xs text-muted">
+                                            A test email will be sent using this campaign&apos;s template with dummy preview data.
+                                        </div>
+                                    </div>
+                                    {testResult && (
+                                        <div className={`alert ${testResult.success ? 'alert-success' : 'alert-danger'}`}>
+                                            {testResult.success
+                                                ? `✅ Test email sent successfully!`
+                                                : `❌ Failed: ${testResult.error}`
+                                            }
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button className="btn btn-ghost" onClick={() => setShowTestModal(null)}>Cancel</button>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => handleTestSend(showTestModal)}
+                                    disabled={!testEmail || testSending}
+                                >
+                                    {testSending ? '⏳ Sending...' : '📤 Send Test'}
+                                </button>
                             </div>
                         </div>
                     </div>

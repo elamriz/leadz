@@ -111,10 +111,22 @@ Best regards! 😊`,
     },
 ];
 
+/* ─── Formatting Toolbar SVG Icons ──────────────────────────── */
+const toolbarIcons = {
+    bold: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" /><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" /></svg>,
+    italic: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" x2="10" y1="4" y2="4" /><line x1="14" x2="5" y1="20" y2="20" /><line x1="15" x2="9" y1="4" y2="20" /></svg>,
+    underline: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4v6a6 6 0 0 0 12 0V4" /><line x1="4" x2="20" y1="20" y2="20" /></svg>,
+    link: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>,
+    heading: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 12h12" /><path d="M6 4v16" /><path d="M18 4v16" /></svg>,
+    list: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" x2="21" y1="6" y2="6" /><line x1="8" x2="21" y1="12" y2="12" /><line x1="8" x2="21" y1="18" y2="18" /><line x1="3" x2="3.01" y1="6" y2="6" /><line x1="3" x2="3.01" y1="12" y2="12" /><line x1="3" x2="3.01" y1="18" y2="18" /></svg>,
+    color: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z" /><path d="m5 2 5 5" /><path d="M2 13h15" /><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.8 2-4 .3 1.2 2 2.4 2 4Z" /></svg>,
+};
+
 export default function TemplatesPage() {
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showCreate, setShowCreate] = useState(false);
+    const [showEditor, setShowEditor] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
 
     // Form
     const [name, setName] = useState('');
@@ -137,6 +149,9 @@ export default function TemplatesPage() {
     const [previewSubject, setPreviewSubject] = useState('');
     const [previewType, setPreviewType] = useState<'email' | 'whatsapp'>('email');
     const [activeVarTarget, setActiveVarTarget] = useState<'subject' | 'body'>('body');
+    const [editorTab, setEditorTab] = useState<'write' | 'preview'>('write');
+    const [saving, setSaving] = useState(false);
+    const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
     const subjectRef = useRef<HTMLInputElement>(null);
 
@@ -154,30 +169,70 @@ export default function TemplatesPage() {
 
     useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
 
-    const handleCreate = async () => {
+    const resetForm = () => {
+        setName('');
+        setSubject('');
+        setBody('');
+        setTplNiche('');
+        setTplType('email');
+        setEditingId(null);
+        setEditorTab('write');
+    };
+
+    const openCreate = () => {
+        resetForm();
+        setShowEditor(true);
+    };
+
+    const openEdit = (tpl: Template) => {
+        setEditingId(tpl.id);
+        setName(tpl.name);
+        setSubject(tpl.subject);
+        setBody(tpl.body);
+        setTplNiche(tpl.niche || '');
+        setTplType(tpl.type as 'email' | 'whatsapp');
+        setEditorTab('write');
+        setShowEditor(true);
+    };
+
+    const handleSave = async () => {
+        setSaving(true);
         try {
+            const payload = {
+                ...(editingId ? { id: editingId } : {}),
+                name,
+                subject,
+                body,
+                niche: tplNiche || null,
+                type: tplType,
+            };
+
             const res = await fetch('/api/templates', {
-                method: 'POST',
+                method: editingId ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name,
-                    subject,
-                    body,
-                    niche: tplNiche || null,
-                    type: tplType,
-                }),
+                body: JSON.stringify(payload),
             });
             if (res.ok) {
-                setShowCreate(false);
-                setName('');
-                setSubject('');
-                setBody('');
-                setTplNiche('');
-                setTplType('email');
+                setShowEditor(false);
+                resetForm();
                 fetchTemplates();
             }
         } catch (err) {
-            console.error('Failed to create:', err);
+            console.error('Failed to save:', err);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        try {
+            const res = await fetch(`/api/templates?id=${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                setDeleteConfirm(null);
+                fetchTemplates();
+            }
+        } catch (err) {
+            console.error('Failed to delete:', err);
         }
     };
 
@@ -187,7 +242,8 @@ export default function TemplatesPage() {
         setBody(preset.body);
         setTplNiche(preset.niche);
         setTplType(preset.type);
-        setShowCreate(true);
+        setEditingId(null);
+        setShowEditor(true);
     };
 
     const renderPreview = (text: string) => {
@@ -206,7 +262,6 @@ export default function TemplatesPage() {
             const end = textarea.selectionEnd;
             const newBody = body.substring(0, start) + varText + body.substring(end);
             setBody(newBody);
-            // Restore cursor position after React re-render
             setTimeout(() => {
                 textarea.focus();
                 textarea.setSelectionRange(start + varText.length, start + varText.length);
@@ -224,6 +279,56 @@ export default function TemplatesPage() {
         }
     };
 
+    /* ─── Rich Formatting Helpers ──────────────────────────────── */
+    const wrapSelection = (before: string, after: string) => {
+        if (!bodyRef.current) return;
+        const textarea = bodyRef.current;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const selected = body.substring(start, end) || 'text';
+        const newBody = body.substring(0, start) + before + selected + after + body.substring(end);
+        setBody(newBody);
+        setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + before.length, start + before.length + selected.length);
+        }, 0);
+    };
+
+    const formatBold = () => wrapSelection('<strong>', '</strong>');
+    const formatItalic = () => wrapSelection('<em>', '</em>');
+    const formatUnderline = () => wrapSelection('<u>', '</u>');
+    const formatHeading = () => wrapSelection('<h3>', '</h3>');
+    const formatList = () => {
+        if (!bodyRef.current) return;
+        const textarea = bodyRef.current;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const selected = body.substring(start, end) || 'Item 1\nItem 2\nItem 3';
+        const items = selected.split('\n').map(line => `  <li>${line.trim()}</li>`).join('\n');
+        const replacement = `<ul>\n${items}\n</ul>`;
+        const newBody = body.substring(0, start) + replacement + body.substring(end);
+        setBody(newBody);
+        setTimeout(() => { textarea.focus(); }, 0);
+    };
+    const formatLink = () => {
+        const url = prompt('Enter URL:');
+        if (url) wrapSelection(`<a href="${url}">`, '</a>');
+    };
+    const formatColor = () => {
+        const color = prompt('Enter color (hex or name):', '#6366f1');
+        if (color) wrapSelection(`<span style="color: ${color}">`, '</span>');
+    };
+
+    const toolbarActions = [
+        { icon: toolbarIcons.bold, label: 'Bold', action: formatBold },
+        { icon: toolbarIcons.italic, label: 'Italic', action: formatItalic },
+        { icon: toolbarIcons.underline, label: 'Underline', action: formatUnderline },
+        { icon: toolbarIcons.heading, label: 'Heading', action: formatHeading },
+        { icon: toolbarIcons.list, label: 'List', action: formatList },
+        { icon: toolbarIcons.link, label: 'Link', action: formatLink },
+        { icon: toolbarIcons.color, label: 'Color', action: formatColor },
+    ];
+
     return (
         <Sidebar>
             <div className="page-header">
@@ -231,7 +336,7 @@ export default function TemplatesPage() {
                     <h2>Templates</h2>
                     <div className="page-subtitle">Create and manage reusable email & WhatsApp templates</div>
                 </div>
-                <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
+                <button className="btn btn-primary btn-sm" onClick={openCreate}>
                     + New Template
                 </button>
             </div>
@@ -249,7 +354,7 @@ export default function TemplatesPage() {
                                 <div className="card-header">
                                     <div className="card-title">🚀 Quick Start</div>
                                 </div>
-                                <div className="text-sm text-muted mb-lg" style={{ marginBottom: 'var(--space-md)' }}>
+                                <div className="text-sm text-muted" style={{ marginBottom: 'var(--space-md)' }}>
                                     Start with one of these pre-built templates:
                                 </div>
                                 <div className="flex flex-col gap-md">
@@ -263,16 +368,18 @@ export default function TemplatesPage() {
                                             alignItems: 'center',
                                             cursor: 'pointer',
                                             border: '1px solid var(--border-primary)',
+                                            gap: 'var(--space-md)',
+                                            flexWrap: 'wrap',
                                         }} onClick={() => loadPreset(preset)}>
-                                            <div>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
                                                 <div className="flex items-center gap-sm">
                                                     <span style={{ fontSize: '1.1rem' }}>{preset.type === 'whatsapp' ? '📱' : '📧'}</span>
                                                     <div style={{ fontWeight: 600 }}>{preset.name}</div>
                                                 </div>
-                                                <div className="text-sm text-muted">{preset.subject}</div>
+                                                <div className="text-sm text-muted truncate">{preset.subject}</div>
                                             </div>
-                                            <div className="flex items-center gap-sm">
-                                                <span className={`tag ${preset.type === 'whatsapp' ? '' : ''}`} style={{
+                                            <div className="flex items-center gap-sm" style={{ flexShrink: 0 }}>
+                                                <span className="tag" style={{
                                                     background: preset.type === 'whatsapp' ? 'rgba(37, 211, 102, 0.15)' : 'rgba(59, 130, 246, 0.15)',
                                                     color: preset.type === 'whatsapp' ? '#25D366' : '#3b82f6',
                                                 }}>{preset.type === 'whatsapp' ? 'WhatsApp' : 'Email'}</span>
@@ -300,10 +407,10 @@ export default function TemplatesPage() {
                         {templates.length > 0 && (
                             <div className="flex flex-col gap-md">
                                 {templates.map(tpl => (
-                                    <div key={tpl.id} className="card">
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                <div className="flex items-center gap-sm">
+                                    <div key={tpl.id} className="card" style={{ position: 'relative' }}>
+                                        <div className="flex justify-between items-center" style={{ flexWrap: 'wrap', gap: 'var(--space-md)' }}>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <div className="flex items-center gap-sm" style={{ flexWrap: 'wrap' }}>
                                                     <span style={{ fontSize: '1.1rem' }}>{tpl.type === 'whatsapp' ? '📱' : '📧'}</span>
                                                     <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>{tpl.name}</h3>
                                                     <span className="tag" style={{
@@ -312,15 +419,15 @@ export default function TemplatesPage() {
                                                         fontSize: '0.7rem',
                                                     }}>{tpl.type === 'whatsapp' ? 'WhatsApp' : 'Email'}</span>
                                                 </div>
-                                                <div className="text-sm text-muted">Subject: {tpl.subject}</div>
-                                                <div className="flex gap-sm mt-md" style={{ marginTop: 8 }}>
+                                                <div className="text-sm text-muted truncate">Subject: {tpl.subject}</div>
+                                                <div className="flex gap-sm mt-md" style={{ marginTop: 8, flexWrap: 'wrap' }}>
                                                     {tpl.niche && <span className="tag">{tpl.niche}</span>}
                                                     {tpl.variables.map(v => (
                                                         <span key={v} className="tag font-mono text-xs">{`{${v}}`}</span>
                                                     ))}
                                                 </div>
                                             </div>
-                                            <div className="flex gap-sm">
+                                            <div className="flex gap-sm" style={{ flexShrink: 0 }}>
                                                 <button className="btn btn-ghost btn-sm" onClick={() => {
                                                     setPreviewBody(tpl.body);
                                                     setPreviewSubject(tpl.subject);
@@ -329,8 +436,38 @@ export default function TemplatesPage() {
                                                 }}>
                                                     👁 Preview
                                                 </button>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => openEdit(tpl)}>
+                                                    ✏️ Edit
+                                                </button>
+                                                <button
+                                                    className="btn btn-danger btn-sm"
+                                                    onClick={() => setDeleteConfirm(tpl.id)}
+                                                >
+                                                    🗑
+                                                </button>
                                             </div>
                                         </div>
+
+                                        {/* Delete confirmation inline */}
+                                        {deleteConfirm === tpl.id && (
+                                            <div style={{
+                                                marginTop: 'var(--space-md)',
+                                                padding: 'var(--space-md)',
+                                                background: 'var(--danger-bg)',
+                                                borderRadius: 'var(--radius-md)',
+                                                border: '1px solid rgba(239, 68, 68, 0.2)',
+                                            }}>
+                                                <div className="flex items-center justify-between" style={{ flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
+                                                    <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>
+                                                        Delete &quot;{tpl.name}&quot;? This cannot be undone.
+                                                    </span>
+                                                    <div className="flex gap-sm">
+                                                        <button className="btn btn-ghost btn-sm" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+                                                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(tpl.id)}>Delete</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -338,13 +475,13 @@ export default function TemplatesPage() {
                     </div>
                 )}
 
-                {/* Create Template Modal */}
-                {showCreate && (
-                    <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-                        <div className="modal" style={{ maxWidth: 800 }} onClick={e => e.stopPropagation()}>
+                {/* Editor Modal (Create / Edit) */}
+                {showEditor && (
+                    <div className="modal-overlay" onClick={() => { setShowEditor(false); resetForm(); }}>
+                        <div className="modal" style={{ maxWidth: 900, width: '95%' }} onClick={e => e.stopPropagation()}>
                             <div className="modal-header">
-                                <h3 style={{ fontWeight: 700 }}>Create Template</h3>
-                                <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)}>✕</button>
+                                <h3 style={{ fontWeight: 700 }}>{editingId ? 'Edit Template' : 'Create Template'}</h3>
+                                <button className="btn btn-ghost btn-sm" onClick={() => { setShowEditor(false); resetForm(); }}>✕</button>
                             </div>
                             <div className="modal-body">
                                 <div className="flex flex-col gap-lg">
@@ -378,11 +515,11 @@ export default function TemplatesPage() {
                                     <div className="form-row">
                                         <div className="form-group">
                                             <label className="form-label">Template Name</label>
-                                            <input className="form-input" value={name} onChange={e => setName(e.target.value)} />
+                                            <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Website Offer" />
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label">Niche (optional)</label>
-                                            <input className="form-input" value={tplNiche} onChange={e => setTplNiche(e.target.value)} />
+                                            <input className="form-input" value={tplNiche} onChange={e => setTplNiche(e.target.value)} placeholder="e.g. restaurants" />
                                         </div>
                                     </div>
                                     <div className="form-group">
@@ -393,6 +530,7 @@ export default function TemplatesPage() {
                                             value={subject}
                                             onChange={e => setSubject(e.target.value)}
                                             onFocus={() => setActiveVarTarget('subject')}
+                                            placeholder="e.g. A better website for {company_name}?"
                                         />
                                     </div>
 
@@ -400,7 +538,7 @@ export default function TemplatesPage() {
                                     <div className="form-group">
                                         <label className="form-label" style={{ marginBottom: 6 }}>
                                             Insert Variable →
-                                            <span className="text-xs text-muted" style={{ marginLeft: 8 }}>
+                                            <span className="text-xs text-muted" style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
                                                 Click to insert into {activeVarTarget === 'subject' ? 'subject' : 'body'}
                                             </span>
                                         </label>
@@ -417,8 +555,6 @@ export default function TemplatesPage() {
                                                         padding: '4px 10px',
                                                         border: '1px solid var(--border-primary)',
                                                         borderRadius: 'var(--radius-md)',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.15s',
                                                     }}
                                                     title={`Insert {${v.key}}`}
                                                 >
@@ -428,29 +564,115 @@ export default function TemplatesPage() {
                                         </div>
                                     </div>
 
+                                    {/* Body Editor with Toolbar */}
                                     <div className="form-group">
                                         <label className="form-label">
                                             {tplType === 'whatsapp' ? 'Message Body (plain text)' : 'Body (HTML)'}
                                         </label>
-                                        <textarea
-                                            ref={bodyRef}
-                                            className="form-textarea"
-                                            value={body}
-                                            onChange={e => setBody(e.target.value)}
-                                            onFocus={() => setActiveVarTarget('body')}
-                                            style={{ minHeight: 250, fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
-                                            placeholder={tplType === 'whatsapp'
-                                                ? 'Write your WhatsApp message here... Use *bold* and _italic_ for formatting.'
-                                                : 'Write your HTML email body here...'
-                                            }
-                                        />
+
+                                        {/* Rich formatting toolbar (email only) */}
+                                        {tplType === 'email' && (
+                                            <div style={{
+                                                display: 'flex',
+                                                gap: 'var(--space-xs)',
+                                                alignItems: 'center',
+                                                flexWrap: 'wrap',
+                                                marginBottom: 'var(--space-sm)',
+                                            }}>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    gap: 2,
+                                                    background: 'var(--bg-tertiary)',
+                                                    padding: '4px',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: '1px solid var(--border-primary)',
+                                                }}>
+                                                    {toolbarActions.map(({ icon, label, action }) => (
+                                                        <button
+                                                            key={label}
+                                                            type="button"
+                                                            onClick={action}
+                                                            title={label}
+                                                            style={{
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: 'var(--text-secondary)',
+                                                                cursor: 'pointer',
+                                                                padding: '6px 8px',
+                                                                borderRadius: 'var(--radius-sm)',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                transition: 'all 0.15s',
+                                                            }}
+                                                            onMouseOver={e => {
+                                                                (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-elevated)';
+                                                                (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)';
+                                                            }}
+                                                            onMouseOut={e => {
+                                                                (e.currentTarget as HTMLButtonElement).style.background = 'none';
+                                                                (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)';
+                                                            }}
+                                                        >
+                                                            {icon}
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                <div style={{ marginLeft: 'auto' }}>
+                                                    <div className="flex gap-sm">
+                                                        <button
+                                                            className={`btn btn-sm ${editorTab === 'write' ? 'btn-secondary' : 'btn-ghost'}`}
+                                                            onClick={() => setEditorTab('write')}
+                                                            style={{ fontSize: '0.75rem', padding: '4px 12px' }}
+                                                        >
+                                                            Code
+                                                        </button>
+                                                        <button
+                                                            className={`btn btn-sm ${editorTab === 'preview' ? 'btn-secondary' : 'btn-ghost'}`}
+                                                            onClick={() => setEditorTab('preview')}
+                                                            style={{ fontSize: '0.75rem', padding: '4px 12px' }}
+                                                        >
+                                                            Preview
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {(editorTab === 'write' || tplType === 'whatsapp') ? (
+                                            <textarea
+                                                ref={bodyRef}
+                                                className="form-textarea"
+                                                value={body}
+                                                onChange={e => setBody(e.target.value)}
+                                                onFocus={() => setActiveVarTarget('body')}
+                                                style={{ minHeight: 280, fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
+                                                placeholder={tplType === 'whatsapp'
+                                                    ? 'Write your WhatsApp message here... Use *bold* and _italic_ for formatting.'
+                                                    : 'Write your HTML email body here...'
+                                                }
+                                            />
+                                        ) : (
+                                            <div
+                                                style={{
+                                                    minHeight: 280,
+                                                    padding: 'var(--space-lg)',
+                                                    background: '#fff',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    color: '#333',
+                                                    border: '1px solid var(--border-primary)',
+                                                    overflow: 'auto',
+                                                }}
+                                                dangerouslySetInnerHTML={{ __html: renderPreview(body) }}
+                                            />
+                                        )}
                                     </div>
                                 </div>
                             </div>
                             <div className="modal-footer">
-                                <button className="btn btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
-                                <button className="btn btn-primary" onClick={handleCreate} disabled={!name || !subject || !body}>
-                                    Save Template
+                                <button className="btn btn-ghost" onClick={() => { setShowEditor(false); resetForm(); }}>Cancel</button>
+                                <button className="btn btn-primary" onClick={handleSave} disabled={!name || !subject || !body || saving}>
+                                    {saving ? 'Saving...' : (editingId ? 'Update Template' : 'Save Template')}
                                 </button>
                             </div>
                         </div>
@@ -460,7 +682,7 @@ export default function TemplatesPage() {
                 {/* Preview Modal */}
                 {showPreview && (
                     <div className="modal-overlay" onClick={() => setShowPreview(false)}>
-                        <div className="modal" style={{ maxWidth: 700 }} onClick={e => e.stopPropagation()}>
+                        <div className="modal" style={{ maxWidth: 700, width: '95%' }} onClick={e => e.stopPropagation()}>
                             <div className="modal-header">
                                 <div className="flex items-center gap-sm">
                                     <h3 style={{ fontWeight: 700 }}>Template Preview</h3>

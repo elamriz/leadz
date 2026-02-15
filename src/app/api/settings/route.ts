@@ -15,12 +15,19 @@ export async function GET() {
         const settingsMap: Record<string, string> = {};
         settings.forEach((s: { key: string; value: string }) => { settingsMap[s.key] = s.value; });
 
+        const smtpHost = settingsMap['smtp_host'] || process.env.SMTP_HOST || 'smtp-relay.brevo.com';
+        const smtpPort = settingsMap['smtp_port'] || process.env.SMTP_PORT || '587';
+        const smtpUser = settingsMap['smtp_user'] || process.env.SMTP_USER || '';
+        const smtpFrom = settingsMap['smtp_from'] || process.env.SMTP_FROM || process.env.SMTP_USER || '';
+        const smtpConfigured = !!smtpUser;
+
         return NextResponse.json({
             smtp: {
-                host: settingsMap['smtp_host'] || process.env.SMTP_HOST || 'smtp.gmail.com',
-                port: settingsMap['smtp_port'] || process.env.SMTP_PORT || '587',
-                user: settingsMap['smtp_user'] ? '••••••' : '',
-                configured: !!settingsMap['smtp_user'] || !!process.env.SMTP_USER,
+                host: smtpHost,
+                port: smtpPort,
+                user: smtpUser,
+                from: smtpFrom,
+                configured: smtpConfigured,
             },
             googleMaps: {
                 configured: !!process.env.GOOGLE_MAPS_API_KEY,

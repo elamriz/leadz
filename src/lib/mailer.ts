@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import prisma from '@/lib/prisma';
 
 // ─── Types ──────────────────────────────────────────────────────
 export interface EmailOptions {
@@ -37,27 +38,43 @@ export interface TemplateVariables {
     [key: string]: string | undefined;
 }
 
-// ─── Get SMTP Config ────────────────────────────────────────────
-function getSmtpConfig(): SmtpConfig {
-    return {
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        user: process.env.SMTP_USER || '',
-        pass: process.env.SMTP_PASS || '',
-        from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
-    };
+// ─── Get SMTP Config (DB settings take priority over env) ───────
+export async function getSmtpConfig(): Promise<SmtpConfig> {
+    try {
+        const dbSettings = await prisma.setting.findMany({
+            where: { key: { startsWith: 'smtp_' } },
+        });
+        const map: Record<string, string> = {};
+        dbSettings.forEach((s: { key: string; value: string }) => { map[s.key] = s.value; });
+
+        return {
+            host: map['smtp_host'] || process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+            port: parseInt(map['smtp_port'] || process.env.SMTP_PORT || '587'),
+            user: map['smtp_user'] || process.env.SMTP_USER || '',
+            pass: map['smtp_pass'] || process.env.SMTP_PASS || '',
+            from: map['smtp_from'] || process.env.SMTP_FROM || process.env.SMTP_USER || '',
+        };
+    } catch {
+        // Fallback to env if DB is not available
+        return {
+            host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+            port: parseInt(process.env.SMTP_PORT || '587'),
+            user: process.env.SMTP_USER || '',
+            pass: process.env.SMTP_PASS || '',
+            from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+        };
+    }
 }
 
 // ─── Create Transporter ─────────────────────────────────────────
-function createTransporter(config?: SmtpConfig) {
-    const smtp = config || getSmtpConfig();
+function createTransporter(config: SmtpConfig) {
     return nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.port === 465,
+        host: config.host,
+        port: config.port,
+        secure: config.port === 465,
         auth: {
-            user: smtp.user,
-            pass: smtp.pass,
+            user: config.user,
+            pass: config.pass,
         },
     });
 }
@@ -65,8 +82,8 @@ function createTransporter(config?: SmtpConfig) {
 // ─── Send Email ─────────────────────────────────────────────────
 export async function sendEmail(options: EmailOptions, config?: SmtpConfig): Promise<SendResult> {
     try {
-        const smtp = config || getSmtpConfig();
-        const transporter = createTransporter(config);
+        const smtp = config || await getSmtpConfig();
+        const transporter = createTransporter(smtp);
 
         const result = await transporter.sendMail({
             from: options.from || smtp.from,
@@ -112,7 +129,8 @@ export function addUnsubscribeLink(html: string, unsubscribeUrl: string): string
 // ─── Verify SMTP Connection ─────────────────────────────────────
 export async function verifySmtp(config?: SmtpConfig): Promise<{ success: boolean; error?: string }> {
     try {
-        const transporter = createTransporter(config);
+        const smtp = config || await getSmtpConfig();
+        const transporter = createTransporter(smtp);
         await transporter.verify();
         return { success: true };
     } catch (error) {

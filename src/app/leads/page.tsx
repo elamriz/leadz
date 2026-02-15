@@ -85,6 +85,11 @@ export default function LeadsPage() {
     const [waOpened, setWaOpened] = useState<Set<string>>(new Set());
     const waMessageRef = useRef<HTMLTextAreaElement>(null);
 
+    // Manual Lead Creation
+    const [showManualLead, setShowManualLead] = useState(false);
+    const [manualForm, setManualForm] = useState({ displayName: '', email: '', phone: '', city: '', niche: '' });
+    const [manualSaving, setManualSaving] = useState(false);
+
     const fetchLeads = useCallback(async () => {
         setLoading(true);
         try {
@@ -181,6 +186,27 @@ export default function LeadsPage() {
         setShowMassWa(true);
     };
 
+    const handleManualCreate = async () => {
+        if (!manualForm.displayName) return;
+        setManualSaving(true);
+        try {
+            const res = await fetch('/api/leads/manual', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(manualForm),
+            });
+            if (res.ok) {
+                setShowManualLead(false);
+                setManualForm({ displayName: '', email: '', phone: '', city: '', niche: '' });
+                fetchLeads();
+            }
+        } catch (err) {
+            console.error('Manual create failed:', err);
+        } finally {
+            setManualSaving(false);
+        }
+    };
+
     return (
         <Sidebar>
             <div className="page-header">
@@ -189,6 +215,7 @@ export default function LeadsPage() {
                     <div className="page-subtitle">{totalCount} total leads in your pipeline</div>
                 </div>
                 <div className="flex gap-sm">
+                    <button className="btn btn-primary btn-sm" onClick={() => setShowManualLead(true)}>+ Add Lead</button>
                     <button className="btn btn-secondary btn-sm" onClick={fetchLeads}>↻ Refresh</button>
                 </div>
             </div>
@@ -673,6 +700,82 @@ export default function LeadsPage() {
                                     {waOpened.size} of {selectedLeadsWithPhone.length} opened
                                 </div>
                                 <button className="btn btn-ghost" onClick={() => setShowMassWa(false)}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Manual Lead Modal */}
+                {showManualLead && (
+                    <div className="modal-overlay" onClick={() => setShowManualLead(false)}>
+                        <div className="modal" style={{ maxWidth: 550 }} onClick={e => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <h3 style={{ fontWeight: 700 }}>➕ Add Lead Manually</h3>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowManualLead(false)}>✕</button>
+                            </div>
+                            <div className="modal-body">
+                                <div className="flex flex-col gap-lg">
+                                    <div className="form-group">
+                                        <label className="form-label">Business Name *</label>
+                                        <input
+                                            className="form-input"
+                                            value={manualForm.displayName}
+                                            onChange={e => setManualForm(prev => ({ ...prev, displayName: e.target.value }))}
+                                            placeholder="e.g. Acme Electric"
+                                        />
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label className="form-label">Email</label>
+                                            <input
+                                                className="form-input"
+                                                type="email"
+                                                value={manualForm.email}
+                                                onChange={e => setManualForm(prev => ({ ...prev, email: e.target.value }))}
+                                                placeholder="contact@example.com"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Phone</label>
+                                            <input
+                                                className="form-input"
+                                                value={manualForm.phone}
+                                                onChange={e => setManualForm(prev => ({ ...prev, phone: e.target.value }))}
+                                                placeholder="+32 2 123 4567"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label className="form-label">City</label>
+                                            <input
+                                                className="form-input"
+                                                value={manualForm.city}
+                                                onChange={e => setManualForm(prev => ({ ...prev, city: e.target.value }))}
+                                                placeholder="e.g. Brussels"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Niche</label>
+                                            <input
+                                                className="form-input"
+                                                value={manualForm.niche}
+                                                onChange={e => setManualForm(prev => ({ ...prev, niche: e.target.value }))}
+                                                placeholder="e.g. electricians"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button className="btn btn-ghost" onClick={() => setShowManualLead(false)}>Cancel</button>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleManualCreate}
+                                    disabled={!manualForm.displayName || manualSaving}
+                                >
+                                    {manualSaving ? '⏳ Creating...' : 'Create Lead'}
+                                </button>
                             </div>
                         </div>
                     </div>

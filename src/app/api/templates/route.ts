@@ -59,3 +59,65 @@ export async function POST(request: NextRequest) {
         );
     }
 }
+
+// PUT update template
+export async function PUT(request: NextRequest) {
+    try {
+        const body = await request.json();
+        const { id, name, subject, body: templateBody, niche, type } = body;
+
+        if (!id) {
+            return NextResponse.json({ error: 'id is required' }, { status: 400 });
+        }
+
+        // Auto-detect variables
+        const detectedVars: string[] = [];
+        const regex = /\{(\w+)\}/g;
+        let match;
+        const combined = (subject || '') + ' ' + (templateBody || '');
+        while ((match = regex.exec(combined)) !== null) {
+            if (!detectedVars.includes(match[1])) {
+                detectedVars.push(match[1]);
+            }
+        }
+
+        const template = await prisma.emailTemplate.update({
+            where: { id },
+            data: {
+                ...(name !== undefined && { name }),
+                ...(subject !== undefined && { subject }),
+                ...(templateBody !== undefined && { body: templateBody }),
+                ...(niche !== undefined && { niche }),
+                ...(type !== undefined && { type }),
+                variables: detectedVars,
+            },
+        });
+
+        return NextResponse.json({ template });
+    } catch (error) {
+        return NextResponse.json(
+            { error: error instanceof Error ? error.message : 'Internal server error' },
+            { status: 500 }
+        );
+    }
+}
+
+// DELETE template
+export async function DELETE(request: NextRequest) {
+    try {
+        const { searchParams } = new URL(request.url);
+        const id = searchParams.get('id');
+
+        if (!id) {
+            return NextResponse.json({ error: 'id is required' }, { status: 400 });
+        }
+
+        await prisma.emailTemplate.delete({ where: { id } });
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        return NextResponse.json(
+            { error: error instanceof Error ? error.message : 'Internal server error' },
+            { status: 500 }
+        );
+    }
+}
