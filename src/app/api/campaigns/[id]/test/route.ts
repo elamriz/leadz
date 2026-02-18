@@ -23,8 +23,24 @@ export async function POST(
             return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
         }
 
-        if (!campaign.template) {
-            return NextResponse.json({ error: 'Campaign has no template' }, { status: 400 });
+        // Resolve which template to use for the test
+        let testTemplate = campaign.template;
+
+        // If no single template but templateIds rotation is set, pick a random one
+        if (!testTemplate && campaign.templateIds && campaign.templateIds.length > 0) {
+            const randomId = campaign.templateIds[Math.floor(Math.random() * campaign.templateIds.length)];
+            testTemplate = await prisma.emailTemplate.findUnique({ where: { id: randomId } }) as any;
+        }
+
+        // If smartSending, pick the first active template matching language
+        if (!testTemplate && campaign.smartSending) {
+            testTemplate = await prisma.emailTemplate.findFirst({
+                where: { isActive: true, language: campaign.language, type: campaign.channel },
+            }) as any;
+        }
+
+        if (!testTemplate) {
+            return NextResponse.json({ error: 'No template found for this campaign' }, { status: 400 });
         }
 
         // Use dummy variables for test
@@ -39,8 +55,9 @@ export async function POST(
             first_name: 'John',
         };
 
-        const subject = renderTemplate(campaign.subject, testVars);
-        const html = renderTemplate(campaign.template.body, testVars);
+        // Always use the template's own subject (never campaign.subject)
+        const subject = renderTemplate((testTemplate as any).subject, testVars);
+        const html = renderTemplate((testTemplate as any).body, testVars);
 
         const smtp = await getSmtpConfig();
 
@@ -56,6 +73,7 @@ export async function POST(
             messageId: result.messageId,
             error: result.error,
             subject,
+            templateUsed: (testTemplate as any).name,
         });
     } catch (error) {
         return NextResponse.json(

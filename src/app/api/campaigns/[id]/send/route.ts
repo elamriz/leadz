@@ -27,8 +27,10 @@ export async function POST(
             };
 
             // If campaign has specific leads selected, only send to those leads
+            // (bypass status/safeSend filters — user explicitly chose these leads)
             if (campaign.selectedLeadIds && campaign.selectedLeadIds.length > 0) {
                 leadFilter.id = { in: campaign.selectedLeadIds };
+                delete leadFilter.status; // Don't filter by status for targeted campaigns
             } else {
                 // Otherwise use niche and other filters
                 if (campaign.niche) {
@@ -37,10 +39,9 @@ export async function POST(
                 if (campaign.noWebsiteOnly) {
                     leadFilter.websiteUri = null;
                 }
-            }
-
-            if (campaign.safeSendMode) {
-                leadFilter.lastContactedAt = null;
+                if (campaign.safeSendMode) {
+                    leadFilter.lastContactedAt = null;
+                }
             }
 
             const leads = await prisma.lead.findMany({
@@ -110,8 +111,10 @@ export async function POST(
         };
 
         // If campaign has specific leads selected, only send to those leads
+        // (bypass status/safeSend filters — user explicitly chose these leads)
         if (campaign.selectedLeadIds && campaign.selectedLeadIds.length > 0) {
             leadFilter.id = { in: campaign.selectedLeadIds };
+            delete leadFilter.status; // Don't filter by status for targeted campaigns
         } else {
             // Otherwise use niche and other filters
             if (campaign.niche) {
@@ -120,10 +123,9 @@ export async function POST(
             if (campaign.noWebsiteOnly) {
                 leadFilter.websiteUri = null;
             }
-        }
-
-        if (campaign.safeSendMode) {
-            leadFilter.lastContactedAt = null;
+            if (campaign.safeSendMode) {
+                leadFilter.lastContactedAt = null;
+            }
         }
 
         // ─── 4. Fetch Templates ─────────────────────────────────────────────
@@ -179,13 +181,23 @@ export async function POST(
                 }
             }
 
-            // 4. Fallback: "general" tag
+            // 4. Outdated / improvable website
+            // Has a website but design score < 50 OR performance score < 40
+            if (lead.websiteUri && lead.websiteUri.length >= 5) {
+                if (signal && (signal.designScore < 50 || signal.performanceScore < 40)) {
+                    const t = templates.find((t: any) => t.tags.includes('outdated-website'));
+                    if (t) return t;
+                }
+            }
+
+            // 5. Fallback: "general" tag
             const general = templates.find((t: any) => t.tags.includes('general'));
             if (general) return general;
 
             // Random as last resort
             return templates[Math.floor(Math.random() * templates.length)];
         };
+
 
         const leads = await prisma.lead.findMany({
             where: leadFilter,
@@ -234,12 +246,14 @@ export async function POST(
         for (const lead of leads) {
             if (sendCount >= remainingToday) break;
 
-            // Check if can contact
-            const contactCheck = await canContactLead(lead.id, campaign.cooldownDays);
-            if (!contactCheck.canContact) {
-                results.skipped++;
-                results.reasons.push(`${lead.displayName}: ${contactCheck.reason}`);
-                continue;
+            // Check if can contact (skip cooldown for targeted campaigns — user explicitly chose these leads)
+            if (!campaign.selectedLeadIds || campaign.selectedLeadIds.length === 0) {
+                const contactCheck = await canContactLead(lead.id, campaign.cooldownDays);
+                if (!contactCheck.canContact) {
+                    results.skipped++;
+                    results.reasons.push(`${lead.displayName}: ${contactCheck.reason}`);
+                    continue;
+                }
             }
 
             // Check campaign dedup

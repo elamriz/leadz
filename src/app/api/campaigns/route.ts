@@ -48,14 +48,17 @@ export async function POST(request: NextRequest) {
             selectedLeadIds = [],
         } = body;
 
-        if (!name || !subject) {
-            return NextResponse.json({ error: 'name and subject are required' }, { status: 400 });
+        if (!name) {
+            return NextResponse.json({ error: 'name is required' }, { status: 400 });
         }
+
+        // Subject is optional when using template rotation or smart sending (subject comes from templates)
+        const effectiveSubject = subject || '(from template)';
 
         const campaign = await prisma.campaign.create({
             data: {
                 name,
-                subject,
+                subject: effectiveSubject,
                 templateId,
                 templateIds,
                 niche,

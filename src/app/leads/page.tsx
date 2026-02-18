@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Link from 'next/link';
-import { NICHES } from '@/lib/niches';
+
 
 interface LeadEmail {
     id: string;
@@ -107,6 +107,12 @@ export default function LeadsPage() {
     const [showManualLead, setShowManualLead] = useState(false);
     const [manualForm, setManualForm] = useState({ displayName: '', email: '', phone: '', city: '', niche: '' });
     const [manualSaving, setManualSaving] = useState(false);
+
+    // Bulk Edit Modal
+    const [showBulkEdit, setShowBulkEdit] = useState(false);
+    const [bulkEditForm, setBulkEditForm] = useState({ niche: '', city: '', formattedAddress: '' });
+    const [bulkEditSaving, setBulkEditSaving] = useState(false);
+    const [bulkEditMode, setBulkEditMode] = useState<'niche' | 'location'>('niche');
 
     const fetchGroups = useCallback(async () => {
         try {
@@ -403,17 +409,15 @@ export default function LeadsPage() {
                                 onChange={e => { setSearch(e.target.value); setPage(1); }}
                             />
                         </div>
-                        <select
-                            className="form-select"
+                        <input
+                            className="form-input"
+                            placeholder="Filter by niche..."
                             value={nicheFilter}
                             onChange={e => { setNicheFilter(e.target.value); setPage(1); }}
-                            style={{ width: 'auto', padding: '6px 12px', fontSize: '0.82rem' }}
-                        >
-                            <option value="">All niches</option>
-                            {NICHES.map(n => (
-                                <option key={n} value={n}>{n}</option>
-                            ))}
-                        </select>
+                            style={{ width: 180, padding: '6px 12px', fontSize: '0.82rem' }}
+                        />
+
+
 
                         {selectedIds.size > 0 && (
                             <div className="flex gap-sm items-center" style={{ flexWrap: 'wrap' }}>
@@ -424,6 +428,26 @@ export default function LeadsPage() {
                                 >
                                     📣 Create Campaign
                                 </Link>
+
+                                <select
+                                    className="form-select"
+                                    style={{ width: 'auto', padding: '6px 12px', fontSize: '0.82rem' }}
+                                    onChange={e => {
+                                        if (e.target.value) {
+                                            if (confirm(`Add ${selectedIds.size} leads to this group?`)) {
+                                                handleBulkAction('add_to_group', { groupId: e.target.value });
+                                            }
+                                            e.target.value = '';
+                                        }
+                                    }}
+                                    defaultValue=""
+                                >
+                                    <option value="">Add to Group...</option>
+                                    {groups.map(g => (
+                                        <option key={g.id} value={g.id}>{g.name}</option>
+                                    ))}
+                                </select>
+
                                 <select
                                     className="form-select"
                                     style={{ width: 'auto', padding: '6px 12px', fontSize: '0.82rem' }}
@@ -440,6 +464,12 @@ export default function LeadsPage() {
                                         <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                                     ))}
                                 </select>
+                                <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => { setBulkEditForm({ niche: '', city: '', formattedAddress: '' }); setBulkEditMode('niche'); setShowBulkEdit(true); }}
+                                >
+                                    ✏️ Edit Fields
+                                </button>
                                 <button className="btn btn-secondary btn-sm" onClick={handleEnrichSelected} disabled={enriching}>
                                     {enriching ? '⏳' : '🔬'} Enrich
                                 </button>
@@ -628,435 +658,540 @@ export default function LeadsPage() {
             </div>
 
             {/* Lead Detail Modal */}
-            {selectedLead && (
-                <div className="modal-overlay" onClick={() => setSelectedLead(null)}>
-                    <div className="modal" style={{ maxWidth: 700 }} onClick={e => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <div>
-                                <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{selectedLead.displayName}</h3>
-                                <div className="text-sm text-muted">{selectedLead.formattedAddress}</div>
-                            </div>
-                            <button className="btn btn-ghost btn-sm" onClick={() => setSelectedLead(null)}>✕</button>
-                        </div>
-                        <div className="modal-body">
-                            <div className="flex flex-col gap-lg">
-                                {/* Score Section */}
-                                <div className="flex items-center gap-lg">
-                                    <div className={`score-badge ${getScoreClass(selectedLead.score)}`} style={{ width: 64, height: 64, fontSize: '1.5rem' }}>
-                                        {selectedLead.score}
-                                    </div>
-                                    <div>
-                                        <div className="text-sm" style={{ fontWeight: 600 }}>Lead Score</div>
-                                        <span className={getStatusBadge(selectedLead.status)}>
-                                            {selectedLead.status.replace(/_/g, ' ')}
-                                        </span>
-                                    </div>
+            {
+                selectedLead && (
+                    <div className="modal-overlay" onClick={() => setSelectedLead(null)}>
+                        <div className="modal" style={{ maxWidth: 700 }} onClick={e => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <div>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{selectedLead.displayName}</h3>
+                                    <div className="text-sm text-muted">{selectedLead.formattedAddress}</div>
                                 </div>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setSelectedLead(null)}>✕</button>
+                            </div>
+                            <div className="modal-body">
+                                <div className="flex flex-col gap-lg">
+                                    {/* Score Section */}
+                                    <div className="flex items-center gap-lg">
+                                        <div className={`score-badge ${getScoreClass(selectedLead.score)}`} style={{ width: 64, height: 64, fontSize: '1.5rem' }}>
+                                            {selectedLead.score}
+                                        </div>
+                                        <div>
+                                            <div className="text-sm" style={{ fontWeight: 600 }}>Lead Score</div>
+                                            <span className={getStatusBadge(selectedLead.status)}>
+                                                {selectedLead.status.replace(/_/g, ' ')}
+                                            </span>
+                                        </div>
+                                    </div>
 
-                                {/* Quick Actions */}
-                                <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
-                                    {selectedLead.nationalPhone && (
-                                        <a
-                                            href={getWaUrl(selectedLead.nationalPhone)}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="btn btn-sm"
-                                            style={{ background: '#25D366', color: '#fff', borderColor: '#25D366' }}
-                                        >
-                                            📱 WhatsApp
-                                        </a>
+                                    {/* Quick Actions */}
+                                    <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
+                                        {selectedLead.nationalPhone && (
+                                            <a
+                                                href={getWaUrl(selectedLead.nationalPhone)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="btn btn-sm"
+                                                style={{ background: '#25D366', color: '#fff', borderColor: '#25D366' }}
+                                            >
+                                                📱 WhatsApp
+                                            </a>
+                                        )}
+                                        {selectedLead.nationalPhone && (
+                                            <a
+                                                href={`tel:${selectedLead.nationalPhone}`}
+                                                className="btn btn-secondary btn-sm"
+                                            >
+                                                📞 Call
+                                            </a>
+                                        )}
+                                        {selectedLead.emails.length > 0 && (
+                                            <a
+                                                href={`mailto:${selectedLead.emails[0].email}`}
+                                                className="btn btn-secondary btn-sm"
+                                            >
+                                                📧 Email
+                                            </a>
+                                        )}
+                                        {selectedLead.websiteUri && (
+                                            <a
+                                                href={selectedLead.websiteUri}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="btn btn-secondary btn-sm"
+                                            >
+                                                🌐 Website
+                                            </a>
+                                        )}
+                                    </div>
+
+                                    {/* Why this score? */}
+                                    {selectedLead.topReasons.length > 0 && (
+                                        <div>
+                                            <div className="card-title mb-lg" style={{ marginBottom: 8 }}>Why this score?</div>
+                                            <div className="score-reasons">
+                                                {selectedLead.topReasons.map((reason, i) => (
+                                                    <div key={i} className="score-reason">{reason}</div>
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
-                                    {selectedLead.nationalPhone && (
-                                        <a
-                                            href={`tel:${selectedLead.nationalPhone}`}
-                                            className="btn btn-secondary btn-sm"
-                                        >
-                                            📞 Call
-                                        </a>
-                                    )}
+
+                                    {/* Contact Info */}
+                                    <div className="grid-2" style={{ gap: 'var(--space-md)' }}>
+                                        <div className="form-group">
+                                            <div className="form-label">Phone</div>
+                                            <div className="text-sm">{selectedLead.nationalPhone || '—'}</div>
+                                        </div>
+                                        <div className="form-group">
+                                            <div className="form-label">Website</div>
+                                            <div className="text-sm">
+                                                {selectedLead.websiteUri ? (
+                                                    <a href={selectedLead.websiteUri} target="_blank" rel="noopener noreferrer">
+                                                        {selectedLead.websiteDomain}
+                                                    </a>
+                                                ) : <span style={{ color: '#ef4444' }}>No website</span>}
+                                            </div>
+                                        </div>
+                                        <div className="form-group">
+                                            <div className="form-label">Rating</div>
+                                            <div className="text-sm">
+                                                {selectedLead.rating ? `${selectedLead.rating}★ (${selectedLead.userRatingCount} reviews)` : '—'}
+                                            </div>
+                                        </div>
+                                        <div className="form-group">
+                                            <div className="form-label">Niche</div>
+                                            <div className="text-sm">{selectedLead.niche || '—'}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Emails */}
                                     {selectedLead.emails.length > 0 && (
-                                        <a
-                                            href={`mailto:${selectedLead.emails[0].email}`}
-                                            className="btn btn-secondary btn-sm"
-                                        >
-                                            📧 Email
-                                        </a>
-                                    )}
-                                    {selectedLead.websiteUri && (
-                                        <a
-                                            href={selectedLead.websiteUri}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="btn btn-secondary btn-sm"
-                                        >
-                                            🌐 Website
-                                        </a>
-                                    )}
-                                </div>
-
-                                {/* Why this score? */}
-                                {selectedLead.topReasons.length > 0 && (
-                                    <div>
-                                        <div className="card-title mb-lg" style={{ marginBottom: 8 }}>Why this score?</div>
-                                        <div className="score-reasons">
-                                            {selectedLead.topReasons.map((reason, i) => (
-                                                <div key={i} className="score-reason">{reason}</div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Contact Info */}
-                                <div className="grid-2" style={{ gap: 'var(--space-md)' }}>
-                                    <div className="form-group">
-                                        <div className="form-label">Phone</div>
-                                        <div className="text-sm">{selectedLead.nationalPhone || '—'}</div>
-                                    </div>
-                                    <div className="form-group">
-                                        <div className="form-label">Website</div>
-                                        <div className="text-sm">
-                                            {selectedLead.websiteUri ? (
-                                                <a href={selectedLead.websiteUri} target="_blank" rel="noopener noreferrer">
-                                                    {selectedLead.websiteDomain}
-                                                </a>
-                                            ) : <span style={{ color: '#ef4444' }}>No website</span>}
-                                        </div>
-                                    </div>
-                                    <div className="form-group">
-                                        <div className="form-label">Rating</div>
-                                        <div className="text-sm">
-                                            {selectedLead.rating ? `${selectedLead.rating}★ (${selectedLead.userRatingCount} reviews)` : '—'}
-                                        </div>
-                                    </div>
-                                    <div className="form-group">
-                                        <div className="form-label">Niche</div>
-                                        <div className="text-sm">{selectedLead.niche || '—'}</div>
-                                    </div>
-                                </div>
-
-                                {/* Emails */}
-                                {selectedLead.emails.length > 0 && (
-                                    <div>
-                                        <div className="card-title" style={{ marginBottom: 8 }}>Emails</div>
-                                        <div className="flex flex-col gap-sm">
-                                            {selectedLead.emails.map(email => (
-                                                <div key={email.id} style={{
-                                                    padding: 'var(--space-sm) var(--space-md)',
-                                                    background: 'var(--bg-tertiary)',
-                                                    borderRadius: 'var(--radius-md)',
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                }}>
-                                                    <span className="text-sm">{email.email}</span>
-                                                    <div className="flex gap-sm items-center">
-                                                        {email.isGeneric && <span className="tag">generic</span>}
-                                                        <span className={`badge ${email.confidence === 'HIGH' ? 'badge-ready' : 'badge-queued'}`}>
-                                                            {email.confidence}
-                                                        </span>
+                                        <div>
+                                            <div className="card-title" style={{ marginBottom: 8 }}>Emails</div>
+                                            <div className="flex flex-col gap-sm">
+                                                {selectedLead.emails.map(email => (
+                                                    <div key={email.id} style={{
+                                                        padding: 'var(--space-sm) var(--space-md)',
+                                                        background: 'var(--bg-tertiary)',
+                                                        borderRadius: 'var(--radius-md)',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                    }}>
+                                                        <span className="text-sm">{email.email}</span>
+                                                        <div className="flex gap-sm items-center">
+                                                            {email.isGeneric && <span className="tag">generic</span>}
+                                                            <span className={`badge ${email.confidence === 'HIGH' ? 'badge-ready' : 'badge-queued'}`}>
+                                                                {email.confidence}
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                ))}
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
 
-                                {/* Tags */}
-                                {selectedLead.tags.length > 0 && (
-                                    <div>
-                                        <div className="card-title" style={{ marginBottom: 8 }}>Tags</div>
-                                        <div className="flex gap-sm">
-                                            {selectedLead.tags.map(tag => (
-                                                <span key={tag} className="tag">{tag}</span>
-                                            ))}
+                                    {/* Tags */}
+                                    {selectedLead.tags.length > 0 && (
+                                        <div>
+                                            <div className="card-title" style={{ marginBottom: 8 }}>Tags</div>
+                                            <div className="flex gap-sm">
+                                                {selectedLead.tags.map(tag => (
+                                                    <span key={tag} className="tag">{tag}</span>
+                                                ))}
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                        <div className="modal-footer">
-                            <Link href={`/leads/${selectedLead.id}`} className="btn btn-secondary btn-sm">
-                                View Full Details
-                            </Link>
+                            <div className="modal-footer">
+                                <Link href={`/leads/${selectedLead.id}`} className="btn btn-secondary btn-sm">
+                                    View Full Details
+                                </Link>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Enrichment Progress Modal */}
-            {showEnrichModal && (
-                <div className="modal-overlay" style={{ zIndex: 100 }}>
-                    <div className="modal" style={{ maxWidth: 400, textAlign: 'center' }}>
-                        <div style={{ padding: '20px 0' }}>
-                            <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🔬</div>
-                            <h3 style={{ marginBottom: '10px' }}>Enriching Leads...</h3>
-                            <p className="text-muted" style={{ marginBottom: '20px' }}>
-                                Analyzing websites and finding emails.
+            {
+                showEnrichModal && (
+                    <div className="modal-overlay" style={{ zIndex: 100 }}>
+                        <div className="modal" style={{ maxWidth: 400, textAlign: 'center' }}>
+                            <div style={{ padding: '20px 0' }}>
+                                <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🔬</div>
+                                <h3 style={{ marginBottom: '10px' }}>Enriching Leads...</h3>
+                                <p className="text-muted" style={{ marginBottom: '20px' }}>
+                                    Analyzing websites and finding emails.
+                                </p>
+
+                                <div style={{
+                                    background: 'var(--bg-tertiary)',
+                                    height: 8,
+                                    borderRadius: 4,
+                                    overflow: 'hidden',
+                                    marginBottom: '10px'
+                                }}>
+                                    <div style={{
+                                        height: '100%',
+                                        background: 'var(--primary)',
+                                        width: `${(enrichProgress.current / enrichProgress.total) * 100}%`,
+                                        transition: 'width 0.3s ease'
+                                    }} />
+                                </div>
+
+                                <div className="flex justify-between text-sm text-muted" style={{ marginBottom: '20px' }}>
+                                    <span>{Math.round((enrichProgress.current / enrichProgress.total) * 100)}%</span>
+                                    <span>{enrichProgress.current} / {enrichProgress.total}</span>
+                                </div>
+
+                                <div className="ticket ticket-warning" style={{ textAlign: 'left', fontSize: '0.85rem' }}>
+                                    <strong>⚠️ Do not close this tab</strong>
+                                    <p style={{ marginTop: 4, margin: 0 }}>
+                                        Enrichment is in progress. Leaving this page will stop the process.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Mass WhatsApp Modal */}
+            {
+                showMassWa && (
+                    <div className="modal-overlay" onClick={() => setShowMassWa(false)}>
+                        <div className="modal" style={{ maxWidth: 700 }} onClick={e => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <div className="flex items-center gap-sm">
+                                    <h3 style={{ fontWeight: 700 }}>📱 Mass WhatsApp</h3>
+                                    <span className="tag" style={{ background: 'rgba(37, 211, 102, 0.15)', color: '#25D366' }}>
+                                        {selectedLeadsWithPhone.length} contacts
+                                    </span>
+                                </div>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowMassWa(false)}>✕</button>
+                            </div>
+                            <div className="modal-body">
+                                <div className="flex flex-col gap-lg">
+                                    {/* Message Template */}
+                                    <div className="form-group">
+                                        <label className="form-label">Message (optional pre-fill)</label>
+                                        <textarea
+                                            ref={waMessageRef}
+                                            className="form-textarea"
+                                            value={waMessage}
+                                            onChange={e => setWaMessage(e.target.value)}
+                                            style={{ minHeight: 100, fontSize: '0.9rem' }}
+                                            placeholder="Write your message... Use {company_name} for personalization"
+                                        />
+                                        <div className="flex gap-sm" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+                                            {['{company_name}', '{city}', '{niche}'].map(v => (
+                                                <button
+                                                    key={v}
+                                                    className="btn btn-ghost btn-sm"
+                                                    style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', padding: '2px 8px' }}
+                                                    onClick={() => {
+                                                        if (waMessageRef.current) {
+                                                            const ta = waMessageRef.current;
+                                                            const start = ta.selectionStart;
+                                                            const end = ta.selectionEnd;
+                                                            const newMsg = waMessage.substring(0, start) + v + waMessage.substring(end);
+                                                            setWaMessage(newMsg);
+                                                            setTimeout(() => {
+                                                                ta.focus();
+                                                                ta.setSelectionRange(start + v.length, start + v.length);
+                                                            }, 0);
+                                                        }
+                                                    }}
+                                                >
+                                                    {v}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Contact List */}
+                                    <div className="flex flex-col gap-sm" style={{ maxHeight: 350, overflowY: 'auto' }}>
+                                        {selectedLeadsWithPhone.map(lead => {
+                                            // Render variables in the message
+                                            const personalizedMsg = waMessage
+                                                .replace(/\{company_name\}/g, lead.displayName)
+                                                .replace(/\{city\}/g, lead.formattedAddress?.split(',').pop()?.trim() || '')
+                                                .replace(/\{niche\}/g, lead.niche || '');
+                                            const url = getWaUrl(lead.nationalPhone!, personalizedMsg);
+                                            const opened = waOpened.has(lead.id);
+
+                                            return (
+                                                <div key={lead.id} style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    padding: 'var(--space-md)',
+                                                    background: opened ? 'rgba(37, 211, 102, 0.08)' : 'var(--bg-tertiary)',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: opened ? '1px solid rgba(37, 211, 102, 0.3)' : '1px solid var(--border-primary)',
+                                                    transition: 'all 0.2s',
+                                                }}>
+                                                    <div>
+                                                        <div style={{ fontWeight: 600 }}>{lead.displayName}</div>
+                                                        <div className="text-sm text-muted">{lead.nationalPhone}</div>
+                                                        {lead.niche && <span className="tag" style={{ marginTop: 2 }}>{lead.niche}</span>}
+                                                    </div>
+                                                    <div className="flex gap-sm items-center">
+                                                        {opened ? (
+                                                            <span className="badge badge-ready">✅ Opened</span>
+                                                        ) : (
+                                                            <a
+                                                                href={url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="btn btn-sm"
+                                                                style={{ background: '#25D366', color: '#fff', borderColor: '#25D366' }}
+                                                                onClick={() => setWaOpened(prev => {
+                                                                    const next = new Set(prev);
+                                                                    next.add(lead.id);
+                                                                    return next;
+                                                                })}
+                                                            >
+                                                                📱 Open
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <div className="text-sm text-muted">
+                                    {waOpened.size} of {selectedLeadsWithPhone.length} opened
+                                </div>
+                                <button className="btn btn-ghost" onClick={() => setShowMassWa(false)}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Manual Lead Modal */}
+            {
+                showManualLead && (
+                    <div className="modal-overlay" onClick={() => setShowManualLead(false)}>
+                        <div className="modal" style={{ maxWidth: 550 }} onClick={e => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <h3 style={{ fontWeight: 700 }}>➕ Add Lead Manually</h3>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowManualLead(false)}>✕</button>
+                            </div>
+                            <div className="modal-body">
+                                <div className="flex flex-col gap-lg">
+                                    <div className="form-group">
+                                        <label className="form-label">Business Name *</label>
+                                        <input
+                                            className="form-input"
+                                            value={manualForm.displayName}
+                                            onChange={e => setManualForm(prev => ({ ...prev, displayName: e.target.value }))}
+                                            placeholder="e.g. Acme Electric"
+                                        />
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label className="form-label">Email</label>
+                                            <input
+                                                className="form-input"
+                                                type="email"
+                                                value={manualForm.email}
+                                                onChange={e => setManualForm(prev => ({ ...prev, email: e.target.value }))}
+                                                placeholder="contact@example.com"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Phone</label>
+                                            <input
+                                                className="form-input"
+                                                value={manualForm.phone}
+                                                onChange={e => setManualForm(prev => ({ ...prev, phone: e.target.value }))}
+                                                placeholder="+32 2 123 4567"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label className="form-label">City</label>
+                                            <input
+                                                className="form-input"
+                                                value={manualForm.city}
+                                                onChange={e => setManualForm(prev => ({ ...prev, city: e.target.value }))}
+                                                placeholder="e.g. Brussels"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Niche</label>
+                                            <input
+                                                className="form-input"
+                                                value={manualForm.niche}
+                                                onChange={e => setManualForm(prev => ({ ...prev, niche: e.target.value }))}
+                                                placeholder="e.g. Électriciens, Plombiers..."
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button className="btn btn-ghost" onClick={() => setShowManualLead(false)}>Cancel</button>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleManualCreate}
+                                    disabled={!manualForm.displayName || manualSaving}
+                                >
+                                    {manualSaving ? '⏳ Creating...' : 'Create Lead'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+            {/* Bulk Edit Modal */}
+            {
+                showBulkEdit && (
+                    <div className="modal-overlay" onClick={() => setShowBulkEdit(false)}>
+                        <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <h3 style={{ fontWeight: 700 }}>✏️ Bulk Edit — {selectedIds.size} leads</h3>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowBulkEdit(false)}>✕</button>
+                            </div>
+                            <div className="modal-body">
+                                <div className="flex flex-col gap-lg">
+                                    {/* Tab switcher */}
+                                    <div className="tabs">
+                                        <button
+                                            className={`tab ${bulkEditMode === 'niche' ? 'active' : ''}`}
+                                            onClick={() => setBulkEditMode('niche')}
+                                        >
+                                            🏷️ Niche
+                                        </button>
+                                        <button
+                                            className={`tab ${bulkEditMode === 'location' ? 'active' : ''}`}
+                                            onClick={() => setBulkEditMode('location')}
+                                        >
+                                            📍 Location
+                                        </button>
+                                    </div>
+
+                                    {bulkEditMode === 'niche' && (
+                                        <div className="form-group">
+                                            <label className="form-label">New Niche</label>
+                                            <input
+                                                className="form-input"
+                                                value={bulkEditForm.niche}
+                                                onChange={e => setBulkEditForm(prev => ({ ...prev, niche: e.target.value }))}
+                                                placeholder="e.g. Électriciens, Plombiers..."
+                                            />
+                                            <div className="text-xs text-muted" style={{ marginTop: 6 }}>
+                                                This will overwrite the niche for all {selectedIds.size} selected leads.
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {bulkEditMode === 'location' && (
+                                        <div className="flex flex-col gap-md">
+                                            <div className="form-group">
+                                                <label className="form-label">City</label>
+                                                <input
+                                                    className="form-input"
+                                                    value={bulkEditForm.city}
+                                                    onChange={e => setBulkEditForm(prev => ({ ...prev, city: e.target.value }))}
+                                                    placeholder="e.g. Brussels"
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Full Address / Location Name</label>
+                                                <input
+                                                    className="form-input"
+                                                    value={bulkEditForm.formattedAddress}
+                                                    onChange={e => setBulkEditForm(prev => ({ ...prev, formattedAddress: e.target.value }))}
+                                                    placeholder="e.g. Brussels, Belgium"
+                                                />
+                                            </div>
+                                            <div className="text-xs text-muted">
+                                                Leave a field blank to keep its current value. This will update all {selectedIds.size} selected leads.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button className="btn btn-ghost" onClick={() => setShowBulkEdit(false)}>Cancel</button>
+                                <button
+                                    className="btn btn-primary"
+                                    disabled={bulkEditSaving || (bulkEditMode === 'location' && !bulkEditForm.city && !bulkEditForm.formattedAddress)}
+                                    onClick={async () => {
+                                        setBulkEditSaving(true);
+                                        try {
+                                            if (bulkEditMode === 'niche') {
+                                                await handleBulkAction('change_niche', { niche: bulkEditForm.niche });
+                                            } else {
+                                                const locationData: Record<string, string> = {};
+                                                if (bulkEditForm.city) locationData.city = bulkEditForm.city;
+                                                if (bulkEditForm.formattedAddress) locationData.formattedAddress = bulkEditForm.formattedAddress;
+                                                await handleBulkAction('change_location', locationData);
+                                            }
+                                            setShowBulkEdit(false);
+                                        } finally {
+                                            setBulkEditSaving(false);
+                                        }
+                                    }}
+                                >
+                                    {bulkEditSaving ? '⏳ Saving...' : `Apply to ${selectedIds.size} leads`}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Enrichment Progress Modal */}
+            {
+                showEnrichModal && (
+                    <div className="modal-overlay">
+                        <div className="modal" style={{ maxWidth: 400, textAlign: 'center' }}>
+                            <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⚡</div>
+                            <h3 className="text-xl font-bold mb-2">Enriching Leads...</h3>
+                            <p className="text-muted mb-4">
+                                Gathering website data, emails, and social profiles.
                             </p>
 
                             <div style={{
-                                background: 'var(--bg-tertiary)',
+                                width: '100%',
                                 height: 8,
+                                background: 'var(--bg-tertiary)',
                                 borderRadius: 4,
                                 overflow: 'hidden',
-                                marginBottom: '10px'
+                                marginBottom: '1rem'
                             }}>
                                 <div style={{
+                                    width: `${(enrichProgress.current / enrichProgress.total) * 100}%`,
                                     height: '100%',
                                     background: 'var(--primary)',
-                                    width: `${(enrichProgress.current / enrichProgress.total) * 100}%`,
                                     transition: 'width 0.3s ease'
-                                }} />
+                                }}></div>
                             </div>
 
-                            <div className="flex justify-between text-sm text-muted" style={{ marginBottom: '20px' }}>
-                                <span>{Math.round((enrichProgress.current / enrichProgress.total) * 100)}%</span>
+                            <div className="flex justify-between text-sm text-muted mb-4">
                                 <span>{enrichProgress.current} / {enrichProgress.total}</span>
+                                <span>{Math.round((enrichProgress.current / enrichProgress.total) * 100)}%</span>
                             </div>
 
-                            <div className="ticket ticket-warning" style={{ textAlign: 'left', fontSize: '0.85rem' }}>
-                                <strong>⚠️ Do not close this tab</strong>
-                                <p style={{ marginTop: 4, margin: 0 }}>
-                                    Enrichment is in progress. Leaving this page will stop the process.
-                                </p>
+                            <div className="alert alert-warning text-xs text-left">
+                                ⚠️ <strong>Do not close this tab.</strong><br />
+                                This process involves deep website analysis and may take a few minutes.
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
-
-            {/* Mass WhatsApp Modal */}
-            {showMassWa && (
-                <div className="modal-overlay" onClick={() => setShowMassWa(false)}>
-                    <div className="modal" style={{ maxWidth: 700 }} onClick={e => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <div className="flex items-center gap-sm">
-                                <h3 style={{ fontWeight: 700 }}>📱 Mass WhatsApp</h3>
-                                <span className="tag" style={{ background: 'rgba(37, 211, 102, 0.15)', color: '#25D366' }}>
-                                    {selectedLeadsWithPhone.length} contacts
-                                </span>
-                            </div>
-                            <button className="btn btn-ghost btn-sm" onClick={() => setShowMassWa(false)}>✕</button>
-                        </div>
-                        <div className="modal-body">
-                            <div className="flex flex-col gap-lg">
-                                {/* Message Template */}
-                                <div className="form-group">
-                                    <label className="form-label">Message (optional pre-fill)</label>
-                                    <textarea
-                                        ref={waMessageRef}
-                                        className="form-textarea"
-                                        value={waMessage}
-                                        onChange={e => setWaMessage(e.target.value)}
-                                        style={{ minHeight: 100, fontSize: '0.9rem' }}
-                                        placeholder="Write your message... Use {company_name} for personalization"
-                                    />
-                                    <div className="flex gap-sm" style={{ marginTop: 6, flexWrap: 'wrap' }}>
-                                        {['{company_name}', '{city}', '{niche}'].map(v => (
-                                            <button
-                                                key={v}
-                                                className="btn btn-ghost btn-sm"
-                                                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', padding: '2px 8px' }}
-                                                onClick={() => {
-                                                    if (waMessageRef.current) {
-                                                        const ta = waMessageRef.current;
-                                                        const start = ta.selectionStart;
-                                                        const end = ta.selectionEnd;
-                                                        const newMsg = waMessage.substring(0, start) + v + waMessage.substring(end);
-                                                        setWaMessage(newMsg);
-                                                        setTimeout(() => {
-                                                            ta.focus();
-                                                            ta.setSelectionRange(start + v.length, start + v.length);
-                                                        }, 0);
-                                                    }
-                                                }}
-                                            >
-                                                {v}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Contact List */}
-                                <div className="flex flex-col gap-sm" style={{ maxHeight: 350, overflowY: 'auto' }}>
-                                    {selectedLeadsWithPhone.map(lead => {
-                                        // Render variables in the message
-                                        const personalizedMsg = waMessage
-                                            .replace(/\{company_name\}/g, lead.displayName)
-                                            .replace(/\{city\}/g, lead.formattedAddress?.split(',').pop()?.trim() || '')
-                                            .replace(/\{niche\}/g, lead.niche || '');
-                                        const url = getWaUrl(lead.nationalPhone!, personalizedMsg);
-                                        const opened = waOpened.has(lead.id);
-
-                                        return (
-                                            <div key={lead.id} style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                padding: 'var(--space-md)',
-                                                background: opened ? 'rgba(37, 211, 102, 0.08)' : 'var(--bg-tertiary)',
-                                                borderRadius: 'var(--radius-md)',
-                                                border: opened ? '1px solid rgba(37, 211, 102, 0.3)' : '1px solid var(--border-primary)',
-                                                transition: 'all 0.2s',
-                                            }}>
-                                                <div>
-                                                    <div style={{ fontWeight: 600 }}>{lead.displayName}</div>
-                                                    <div className="text-sm text-muted">{lead.nationalPhone}</div>
-                                                    {lead.niche && <span className="tag" style={{ marginTop: 2 }}>{lead.niche}</span>}
-                                                </div>
-                                                <div className="flex gap-sm items-center">
-                                                    {opened ? (
-                                                        <span className="badge badge-ready">✅ Opened</span>
-                                                    ) : (
-                                                        <a
-                                                            href={url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="btn btn-sm"
-                                                            style={{ background: '#25D366', color: '#fff', borderColor: '#25D366' }}
-                                                            onClick={() => setWaOpened(prev => {
-                                                                const next = new Set(prev);
-                                                                next.add(lead.id);
-                                                                return next;
-                                                            })}
-                                                        >
-                                                            📱 Open
-                                                        </a>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="modal-footer">
-                            <div className="text-sm text-muted">
-                                {waOpened.size} of {selectedLeadsWithPhone.length} opened
-                            </div>
-                            <button className="btn btn-ghost" onClick={() => setShowMassWa(false)}>Close</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Manual Lead Modal */}
-            {showManualLead && (
-                <div className="modal-overlay" onClick={() => setShowManualLead(false)}>
-                    <div className="modal" style={{ maxWidth: 550 }} onClick={e => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h3 style={{ fontWeight: 700 }}>➕ Add Lead Manually</h3>
-                            <button className="btn btn-ghost btn-sm" onClick={() => setShowManualLead(false)}>✕</button>
-                        </div>
-                        <div className="modal-body">
-                            <div className="flex flex-col gap-lg">
-                                <div className="form-group">
-                                    <label className="form-label">Business Name *</label>
-                                    <input
-                                        className="form-input"
-                                        value={manualForm.displayName}
-                                        onChange={e => setManualForm(prev => ({ ...prev, displayName: e.target.value }))}
-                                        placeholder="e.g. Acme Electric"
-                                    />
-                                </div>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label className="form-label">Email</label>
-                                        <input
-                                            className="form-input"
-                                            type="email"
-                                            value={manualForm.email}
-                                            onChange={e => setManualForm(prev => ({ ...prev, email: e.target.value }))}
-                                            placeholder="contact@example.com"
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Phone</label>
-                                        <input
-                                            className="form-input"
-                                            value={manualForm.phone}
-                                            onChange={e => setManualForm(prev => ({ ...prev, phone: e.target.value }))}
-                                            placeholder="+32 2 123 4567"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label className="form-label">City</label>
-                                        <input
-                                            className="form-input"
-                                            value={manualForm.city}
-                                            onChange={e => setManualForm(prev => ({ ...prev, city: e.target.value }))}
-                                            placeholder="e.g. Brussels"
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Niche</label>
-                                        <select
-                                            className="form-select"
-                                            value={manualForm.niche}
-                                            onChange={e => setManualForm(prev => ({ ...prev, niche: e.target.value }))}
-                                        >
-                                            <option value="">Select a niche...</option>
-                                            {NICHES.map(n => (
-                                                <option key={n} value={n}>{n}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-ghost" onClick={() => setShowManualLead(false)}>Cancel</button>
-                            <button
-                                className="btn btn-primary"
-                                onClick={handleManualCreate}
-                                disabled={!manualForm.displayName || manualSaving}
-                            >
-                                {manualSaving ? '⏳ Creating...' : 'Create Lead'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* Enrichment Progress Modal */}
-            {showEnrichModal && (
-                <div className="modal-overlay">
-                    <div className="modal" style={{ maxWidth: 400, textAlign: 'center' }}>
-                        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⚡</div>
-                        <h3 className="text-xl font-bold mb-2">Enriching Leads...</h3>
-                        <p className="text-muted mb-4">
-                            Gathering website data, emails, and social profiles.
-                        </p>
-
-                        <div style={{
-                            width: '100%',
-                            height: 8,
-                            background: 'var(--bg-tertiary)',
-                            borderRadius: 4,
-                            overflow: 'hidden',
-                            marginBottom: '1rem'
-                        }}>
-                            <div style={{
-                                width: `${(enrichProgress.current / enrichProgress.total) * 100}%`,
-                                height: '100%',
-                                background: 'var(--primary)',
-                                transition: 'width 0.3s ease'
-                            }}></div>
-                        </div>
-
-                        <div className="flex justify-between text-sm text-muted mb-4">
-                            <span>{enrichProgress.current} / {enrichProgress.total}</span>
-                            <span>{Math.round((enrichProgress.current / enrichProgress.total) * 100)}%</span>
-                        </div>
-
-                        <div className="alert alert-warning text-xs text-left">
-                            ⚠️ <strong>Do not close this tab.</strong><br />
-                            This process involves deep website analysis and may take a few minutes.
-                        </div>
-                    </div>
-                </div>
-            )}
+                )
+            }
         </Sidebar >
     );
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
-import { NICHES } from '@/lib/niches';
+
 
 interface Campaign {
     id: string;
@@ -68,7 +68,6 @@ export default function CampaignsPage() {
     const [name, setName] = useState('');
     const [channel, setChannel] = useState<'email' | 'whatsapp'>('email');
     const [niche, setNiche] = useState('');
-    const [customNiche, setCustomNiche] = useState('');
     const [noWebsiteOnly, setNoWebsiteOnly] = useState(false);
     const [safeSend, setSafeSend] = useState(true);
     const [templateId, setTemplateId] = useState('');
@@ -119,7 +118,6 @@ export default function CampaignsPage() {
         setName('');
         setChannel('email');
         setNiche('');
-        setCustomNiche('');
         setNoWebsiteOnly(false);
         setSafeSend(true);
         setTemplateId('');
@@ -136,7 +134,7 @@ export default function CampaignsPage() {
 
     const handleCreate = async () => {
         try {
-            const selectedNiche = niche === 'custom' ? customNiche : niche === '' ? null : niche;
+            const selectedNiche = niche.trim() || null;
 
             const url = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
             const method = editingId ? 'PATCH' : 'POST';
@@ -226,13 +224,8 @@ export default function CampaignsPage() {
         setChannel(camp.channel as 'email' | 'whatsapp');
 
         // Handle niche
-        if (camp.niche && !NICHES.includes(camp.niche as any)) {
-            setNiche('custom');
-            setCustomNiche(camp.niche);
-        } else {
-            setNiche(camp.niche || '');
-            setCustomNiche('');
-        }
+        setNiche(camp.niche || '');
+
 
         setNoWebsiteOnly(camp.noWebsiteOnly);
         setSafeSend(camp.safeSendMode);
@@ -559,22 +552,14 @@ export default function CampaignsPage() {
                                         )}
                                         <div className="form-group">
                                             <label className="form-label">Target Niche</label>
-                                            <select className="form-select" value={niche} onChange={e => setNiche(e.target.value)} disabled={selectedLeadIds.length > 0}>
-                                                <option value="">All niches</option>
-                                                {NICHES.map(n => (
-                                                    <option key={n} value={n}>{n}</option>
-                                                ))}
-                                                <option value="custom">Custom...</option>
-                                            </select>
-                                            {niche === 'custom' && (
-                                                <input
-                                                    className="form-input"
-                                                    placeholder="Enter custom niche..."
-                                                    value={customNiche}
-                                                    onChange={e => setCustomNiche(e.target.value)}
-                                                    style={{ marginTop: 8 }}
-                                                />
-                                            )}
+                                            <input
+                                                className="form-input"
+                                                value={niche}
+                                                onChange={e => setNiche(e.target.value)}
+                                                placeholder="e.g. Électriciens, Plombiers, Restaurants..."
+                                                disabled={selectedLeadIds.length > 0}
+                                            />
+                                            <div className="text-xs text-muted" style={{ marginTop: 4 }}>Leave empty to target all niches. Only used when no specific leads are selected.</div>
                                         </div>
 
                                         <div className="flex items-center gap-md" style={{
@@ -725,7 +710,7 @@ export default function CampaignsPage() {
                                         Next →
                                     </button>
                                 ) : (
-                                    <button className="btn btn-primary" onClick={handleCreate} disabled={!name || !subject}>
+                                    <button className="btn btn-primary" onClick={handleCreate} disabled={!name}>
                                         {editingId ? 'Save Changes' : 'Create Campaign'}
                                     </button>
                                 )}

@@ -78,6 +78,71 @@ export async function POST(request: NextRequest) {
                 break;
             }
 
+            case 'add_to_group': {
+                if (!data?.groupId) {
+                    return NextResponse.json({ error: 'data.groupId is required' }, { status: 400 });
+                }
+
+                // Verify group exists first
+                const group = await prisma.leadGroup.findUnique({
+                    where: { id: data.groupId },
+                });
+
+                if (!group) {
+                    return NextResponse.json({ error: 'Group not found' }, { status: 404 });
+                }
+
+                // Update all leads
+                // Prisma doesn't support updateMany for relations, so we loop
+                // Transaction would be better for consistency but loop is acceptable for this scale
+                for (const leadId of leadIds) {
+                    await prisma.lead.update({
+                        where: { id: leadId },
+                        data: {
+                            groups: {
+                                connect: { id: data.groupId }
+                            }
+                        }
+                    });
+                    affected++;
+                }
+                break;
+            }
+
+            case 'change_niche': {
+                if (!data?.niche && data?.niche !== '') {
+                    return NextResponse.json({ error: 'data.niche is required' }, { status: 400 });
+                }
+                const result = await prisma.lead.updateMany({
+                    where: { id: { in: leadIds } },
+                    data: { niche: data.niche || null },
+                });
+                affected = result.count;
+                for (const leadId of leadIds) {
+                    await logAudit('bulk_niche_change', leadId, `Bulk niche change to "${data.niche}"`);
+                }
+                break;
+            }
+
+            case 'change_location': {
+                if (!data?.city && !data?.formattedAddress) {
+                    return NextResponse.json({ error: 'data.city or data.formattedAddress is required' }, { status: 400 });
+                }
+                const updateData: Record<string, string | null> = {};
+                if (data.city !== undefined) updateData.city = data.city || null;
+                if (data.formattedAddress !== undefined) updateData.formattedAddress = data.formattedAddress || null;
+
+                const result = await prisma.lead.updateMany({
+                    where: { id: { in: leadIds } },
+                    data: updateData,
+                });
+                affected = result.count;
+                for (const leadId of leadIds) {
+                    await logAudit('bulk_location_change', leadId, `Bulk location change to city="${data.city}" address="${data.formattedAddress}"`);
+                }
+                break;
+            }
+
             default:
                 return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
         }

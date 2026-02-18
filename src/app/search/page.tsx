@@ -43,30 +43,7 @@ interface SearchRun {
     _count: { leads: number };
 }
 
-const NICHES = [
-    { label: 'Électriciens / Electricians', fr: 'Électriciens', en: 'Electricians' },
-    { label: 'Plombiers / Plumbers', fr: 'Plombiers', en: 'Plumbers' },
-    { label: 'Restaurants', fr: 'Restaurants', en: 'Restaurants' },
-    { label: 'Salons de coiffure / Hair salons', fr: 'Salons de coiffure', en: 'Hair salons' },
-    { label: 'Dentistes / Dental clinics', fr: 'Dentistes', en: 'Dental clinics' },
-    { label: 'Salles de sport / Gyms', fr: 'Salles de sport', en: 'Gyms fitness centers' },
-    { label: 'Cabinets d\'avocats / Law firms', fr: 'Cabinets d\'avocats', en: 'Law firms' },
-    { label: 'Agences immobilières / Real estate', fr: 'Agences immobilières', en: 'Real estate agencies' },
-    { label: 'Garages / Auto repair', fr: 'Garages automobiles', en: 'Auto repair shops' },
-    { label: 'Boulangeries / Bakeries', fr: 'Boulangeries', en: 'Bakeries' },
-    { label: 'Cafés / Coffee shops', fr: 'Cafés', en: 'Coffee shops' },
-    { label: 'Hôtels / Hotels', fr: 'Hôtels', en: 'Hotels' },
-    { label: 'Nettoyage / Cleaning', fr: 'Services de nettoyage', en: 'Cleaning services' },
-    { label: 'Tatouage / Tattoo', fr: 'Salons de tatouage', en: 'Tattoo studios' },
-    { label: 'Architecture', fr: 'Cabinets d\'architecture', en: 'Architecture firms' },
-    { label: 'Comptabilité / Accounting', fr: 'Cabinets comptables', en: 'Accounting firms' },
-    { label: 'Salles de réception / Wedding venues', fr: 'Salles de réception', en: 'Wedding venues' },
-    { label: 'Toilettage / Pet grooming', fr: 'Toilettage d\'animaux', en: 'Pet grooming' },
-    { label: 'Studios photo / Photography', fr: 'Studios photo', en: 'Photography studios' },
-    { label: 'Yoga studios', fr: 'Studios de yoga', en: 'Yoga studios' },
-    { label: 'Construction', fr: 'Entreprises de construction', en: 'Construction companies' },
-    { label: 'Paysagistes / Landscaping', fr: 'Paysagistes', en: 'Landscaping' },
-];
+
 
 const LOCATIONS = [
     { name: 'Brussels, Belgium', lat: 50.8503, lng: 4.3517, region: 'BE' },
@@ -173,8 +150,7 @@ function getZoomForRadius(radiusKm: number): number {
 }
 
 export default function SearchPage() {
-    const [nicheKey, setNicheKey] = useState('');
-    const [customNiche, setCustomNiche] = useState('');
+    const [nicheKeyword, setNicheKeyword] = useState('');
     const [searchLang, setSearchLang] = useState<'fr' | 'en'>('fr');
     const [location, setLocation] = useState('');
     const [customLat, setCustomLat] = useState('50.8503');
@@ -237,14 +213,7 @@ export default function SearchPage() {
     }, [fetchLogs, fetchGroups]);
 
     const getSearchParams = () => {
-        // Extract the right keyword based on language
-        let query: string;
-        if (nicheKey === 'custom') {
-            query = customNiche;
-        } else {
-            const niche = NICHES.find(n => n.label === nicheKey);
-            query = niche ? niche[searchLang] : nicheKey;
-        }
+        const query = nicheKeyword;
 
         const loc = LOCATIONS.find(l => l.name === location);
         const lat = loc?.lat || parseFloat(customLat) || 50.8503;
@@ -335,7 +304,7 @@ export default function SearchPage() {
         }
     };
 
-    const nicheSelected = nicheKey && (nicheKey !== 'custom' || customNiche);
+    const nicheSelected = nicheKeyword.trim().length > 0;
     const locationSelected = location && (location !== 'custom' || (customLat && customLng));
 
     return (
@@ -428,27 +397,15 @@ export default function SearchPage() {
                                 <div className="flex flex-col gap-lg">
                                     <div className="form-group">
                                         <label className="form-label">Industry / Niche</label>
-                                        <select className="form-select" value={nicheKey} onChange={e => setNicheKey(e.target.value)}>
-                                            <option value="">Select a niche...</option>
-                                            {NICHES.map(n => (
-                                                <option key={n.label} value={n.label}>{n.label}</option>
-                                            ))}
-                                            <option value="custom">Custom...</option>
-                                        </select>
-                                        {nicheKey === 'custom' && (
-                                            <input
-                                                className="form-input"
-                                                placeholder="Enter custom niche keyword..."
-                                                value={customNiche}
-                                                onChange={e => setCustomNiche(e.target.value)}
-                                                style={{ marginTop: 8 }}
-                                            />
-                                        )}
-                                        {nicheKey && nicheKey !== 'custom' && (
-                                            <div className="text-xs text-muted" style={{ marginTop: 4 }}>
-                                                Search keyword: <strong>{NICHES.find(n => n.label === nicheKey)?.[searchLang]}</strong>
-                                            </div>
-                                        )}
+                                        <input
+                                            className="form-input"
+                                            placeholder={searchLang === 'fr' ? 'Ex: Électriciens, Plombiers, Restaurants...' : 'Ex: Electricians, Plumbers, Restaurants...'}
+                                            value={nicheKeyword}
+                                            onChange={e => setNicheKeyword(e.target.value)}
+                                        />
+                                        <div className="text-xs text-muted" style={{ marginTop: 4 }}>
+                                            Type the exact keyword to search on Google Maps ({searchLang === 'fr' ? 'French' : 'English'})
+                                        </div>
                                     </div>
 
                                     <div className="form-group">
