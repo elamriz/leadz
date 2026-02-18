@@ -154,6 +154,13 @@ export async function POST(
             return NextResponse.json({ error: 'No valid templates found for this campaign' }, { status: 400 });
         }
 
+        // Helper to pick a RANDOM template among all templates matching a tag
+        const pickByTag = (templates: any[], tag: string) => {
+            const matches = templates.filter((t: any) => t.tags.includes(tag));
+            if (matches.length === 0) return null;
+            return matches[Math.floor(Math.random() * matches.length)];
+        };
+
         // Helper to pick template based on lead tags/score
         const pickSmartTemplate = (lead: any, templates: any[]) => {
             if (!campaign.smartSending) return null;
@@ -162,37 +169,35 @@ export async function POST(
 
             // 1. Inaccessible
             if (signal && signal.isAccessible === false) {
-                const t = templates.find((t: any) => t.tags.includes('inaccessible'));
+                const t = pickByTag(templates, 'inaccessible');
                 if (t) return t;
             }
 
             // 2. No Website (if URI is empty or "http" only or minimal length)
             if (!lead.websiteUri || lead.websiteUri.length < 5) {
-                const t = templates.find((t: any) => t.tags.includes('no-website'));
+                const t = pickByTag(templates, 'no-website');
                 if (t) return t;
             }
 
-            // 3. High Reputation but Bad Site
-            // Rating > 4.5 AND (Performance < 50 OR Design < 50)
+            // 3. High Reputation — rating >= 4.5 always gets reputation template
+            // (if signals exist and scores are bad, even more reason; if no signals, still use reputation)
             if (lead.rating && lead.rating >= 4.5) {
-                if (signal && (signal.performanceScore < 50 || signal.designScore < 50)) {
-                    const t = templates.find((t: any) => t.tags.includes('reputation'));
-                    if (t) return t;
-                }
+                const t = pickByTag(templates, 'reputation');
+                if (t) return t;
             }
 
             // 4. Outdated / improvable website
             // Has a website but design score < 50 OR performance score < 40
             if (lead.websiteUri && lead.websiteUri.length >= 5) {
                 if (signal && (signal.designScore < 50 || signal.performanceScore < 40)) {
-                    const t = templates.find((t: any) => t.tags.includes('outdated-website'));
+                    const t = pickByTag(templates, 'outdated-website');
                     if (t) return t;
                 }
             }
 
-            // 5. Fallback: "general" tag
-            const general = templates.find((t: any) => t.tags.includes('general'));
-            if (general) return general;
+            // 5. Fallback: random among "general" tagged templates
+            const t = pickByTag(templates, 'general');
+            if (t) return t;
 
             // Random as last resort
             return templates[Math.floor(Math.random() * templates.length)];
