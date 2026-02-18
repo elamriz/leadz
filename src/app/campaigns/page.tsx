@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 
@@ -24,6 +24,9 @@ interface Campaign {
     senderName?: string | null;
     senderNames?: string[];
     smartSending?: boolean;
+    jobStatus?: 'idle' | 'running' | 'done';
+    jobTotal?: number;
+    totalOpened?: number; // Fetched from stats
     _count: { sends: number };
     createdAt: string;
 }
@@ -44,7 +47,7 @@ interface WaLink {
     message: string;
 }
 
-export default function CampaignsPage() {
+function CampaignsContent() {
     const searchParams = useSearchParams();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [templates, setTemplates] = useState<Template[]>([]);
@@ -323,15 +326,16 @@ export default function CampaignsPage() {
                         {/* Send Result (Email) */}
                         {sendResult && (
                             <div className="alert alert-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 'var(--space-sm)' }}>
-                                <strong>Send Complete</strong>
+                                <strong>Job Queued</strong>
                                 <div className="text-sm">
-                                    ✅ Sent: {(sendResult.results as Record<string, number>)?.sent || 0} |
-                                    ⏭ Skipped: {(sendResult.results as Record<string, number>)?.skipped || 0} |
-                                    ❌ Failed: {(sendResult.results as Record<string, number>)?.failed || 0}
+                                    {(sendResult.message as string) || ''}
                                 </div>
                                 <button className="btn btn-ghost btn-sm" onClick={() => setSendResult(null)}>Dismiss</button>
                             </div>
                         )}
+
+                        {/* WORKER POLLING */}
+                        <WorkerPoller campaigns={campaigns} onUpdate={fetchData} />
 
                         {/* Campaign List */}
                         {campaigns.length === 0 ? (
@@ -345,75 +349,103 @@ export default function CampaignsPage() {
                             <div className="flex flex-col gap-md">
                                 {campaigns.map(camp => {
                                     const chBadge = getChannelBadge(camp.channel);
+                                    const isRunning = camp.jobStatus === 'running';
+                                    const progress = (camp.jobTotal || 0) > 0 ? Math.round((camp.totalSent / (camp.jobTotal || 1)) * 100) : 0;
+
+                                    // Calculate real progress based on jobTotal (snapshot at start) vs sends
+                                    // Actually, we need to fetch live stats to be accurate.
+                                    // Let's use a sub-component for stats to fetch independently.
+
                                     return (
-                                        <div key={camp.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div style={{ flex: 1 }}>
-                                                <div className="flex items-center gap-md">
-                                                    <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>{camp.name}</h3>
-                                                    <span className={`badge ${getStatusColor(camp.status)}`}>{camp.status}</span>
-                                                    <span className="tag" style={{ background: chBadge.bg, color: chBadge.color, fontSize: '0.7rem' }}>
-                                                        {chBadge.label}
-                                                    </span>
+                                        <div key={camp.id} className="card">
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div className="flex items-center gap-md">
+                                                        <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>{camp.name}</h3>
+                                                        <span className={`badge ${getStatusColor(camp.status)}`}>{camp.status}</span>
+                                                        <span className="tag" style={{ background: chBadge.bg, color: chBadge.color, fontSize: '0.7rem' }}>
+                                                            {chBadge.label}
+                                                        </span>
+                                                        {isRunning && <span className="badge badge-queued animate-pulse">Running in background...</span>}
+                                                    </div>
+                                                    <div className="text-sm text-muted mt-md" style={{ marginTop: 4 }}>
+                                                        Subject: {camp.subject}
+                                                    </div>
+                                                    <div className="text-sm text-muted" style={{ marginTop: 2 }}>
+                                                        Sender: {camp.senderNames && camp.senderNames.length > 0
+                                                            ? `Rotating (${camp.senderNames.length} variations)`
+                                                            : (camp.senderName || 'Default')}
+                                                    </div>
+                                                    {camp.template && (
+                                                        <div className="text-xs text-muted" style={{ marginTop: 2 }}>Template: {camp.template.name}</div>
+                                                    )}
+
+                                                    {/* Campaign Stats & Progress */}
+                                                    <CampaignStats
+                                                        campaignId={camp.id}
+                                                        initialStats={{
+                                                            sent: camp.totalSent,
+                                                            opened: camp.totalOpened,
+                                                            replied: camp.totalReplied,
+                                                            bounced: camp.totalBounced,
+                                                            failed: camp.totalFailed
+                                                        }}
+                                                        isRunning={isRunning}
+                                                    />
+
+                                                    <div className="flex gap-sm mt-md" style={{ marginTop: 8 }}>
+                                                        {camp.niche && <span className="tag">{camp.niche}</span>}
+                                                        {camp.noWebsiteOnly && <span className="tag">🌐 No Website Only</span>}
+                                                        {camp.safeSendMode && <span className="tag">🛡 Safe Send</span>}
+                                                        <span className="tag">Max {camp.dailyLimit}/day</span>
+                                                    </div>
                                                 </div>
-                                                <div className="text-sm text-muted mt-md" style={{ marginTop: 4 }}>
-                                                    Subject: {camp.subject}
-                                                </div>
-                                                <div className="text-sm text-muted" style={{ marginTop: 2 }}>
-                                                    Sender: {camp.senderNames && camp.senderNames.length > 0
-                                                        ? `Rotating (${camp.senderNames.length} variations)`
-                                                        : (camp.senderName || 'Default')}
-                                                </div>
-                                                {camp.template && (
-                                                    <div className="text-xs text-muted" style={{ marginTop: 2 }}>Template: {camp.template.name}</div>
-                                                )}
-                                                <div className="flex gap-lg mt-md" style={{ marginTop: 8 }}>
-                                                    <span className="text-sm">✅ {camp.totalSent} sent</span>
-                                                    <span className="text-sm">💬 {camp.totalReplied} replied</span>
-                                                    <span className="text-sm">⚠️ {camp.totalBounced} bounced</span>
-                                                    <span className="text-sm">❌ {camp.totalFailed} failed</span>
-                                                </div>
-                                                <div className="flex gap-sm mt-md" style={{ marginTop: 8 }}>
-                                                    {camp.niche && <span className="tag">{camp.niche}</span>}
-                                                    {camp.noWebsiteOnly && <span className="tag">🌐 No Website Only</span>}
-                                                    {camp.safeSendMode && <span className="tag">🛡 Safe Send</span>}
-                                                    <span className="tag">Max {camp.dailyLimit}/day</span>
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col gap-sm" style={{ alignItems: 'flex-end' }}>
-                                                <button
-                                                    className="btn btn-primary btn-sm"
-                                                    onClick={() => handleSend(camp.id)}
-                                                    disabled={sending === camp.id || camp.status === 'COMPLETED'}
-                                                    style={camp.channel === 'whatsapp' ? { background: '#25D366', borderColor: '#25D366' } : {}}
-                                                >
-                                                    {sending === camp.id ? '⏳ Preparing...' : camp.channel === 'whatsapp' ? '📱 Send via WhatsApp' : '📤 Send'}
-                                                </button>
-                                                {camp.channel === 'email' && camp.template && (
-                                                    <button
-                                                        className="btn btn-secondary btn-sm"
-                                                        onClick={() => { setShowTestModal(camp.id); setTestEmail(''); setTestResult(null); }}
-                                                    >
-                                                        🧪 Test Email
-                                                    </button>
-                                                )}
-                                                <div className="flex gap-sm">
-                                                    <button
-                                                        className="btn btn-ghost btn-sm"
-                                                        onClick={() => handleEdit(camp)}
-                                                        title="Edit campaign"
-                                                    >
-                                                        ✏️
-                                                    </button>
-                                                    <button
-                                                        className="btn btn-ghost btn-sm text-danger"
-                                                        onClick={() => handleDelete(camp.id)}
-                                                        title="Delete campaign"
-                                                    >
-                                                        🗑️
-                                                    </button>
-                                                </div>
-                                                <div className="text-xs text-muted">
-                                                    {new Date(camp.createdAt).toLocaleDateString()}
+                                                <div className="flex flex-col gap-sm" style={{ alignItems: 'flex-end' }}>
+                                                    {/* Resume / Pause / Send Button */}
+                                                    {isRunning ? (
+                                                        <button className="btn btn-secondary btn-sm" disabled>
+                                                            ⏳ Sending...
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            className="btn btn-primary btn-sm"
+                                                            onClick={() => handleSend(camp.id)}
+                                                            disabled={sending === camp.id || camp.status === 'COMPLETED'}
+                                                            style={camp.channel === 'whatsapp' ? { background: '#25D366', borderColor: '#25D366' } : {}}
+                                                        >
+                                                            {sending === camp.id ? '⏳ Queuing...' :
+                                                                camp.status === 'ACTIVE' ? '▶ Resume' :
+                                                                    camp.channel === 'whatsapp' ? '📱 WhatsApp' : '📤 Start Campaign'}
+                                                        </button>
+                                                    )}
+
+                                                    {camp.channel === 'email' && !isRunning && (
+                                                        <button
+                                                            className="btn btn-secondary btn-sm"
+                                                            onClick={() => { setShowTestModal(camp.id); setTestEmail(''); setTestResult(null); }}
+                                                        >
+                                                            🧪 Test Email
+                                                        </button>
+                                                    )}
+                                                    <div className="flex gap-sm">
+                                                        <button
+                                                            className="btn btn-ghost btn-sm"
+                                                            onClick={() => handleEdit(camp)}
+                                                            title="Edit campaign"
+                                                        >
+                                                            ✏️
+                                                        </button>
+                                                        <button
+                                                            className="btn btn-ghost btn-sm text-danger"
+                                                            onClick={() => handleDelete(camp.id)}
+                                                            title="Delete campaign"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
+                                                    <div className="text-xs text-muted">
+                                                        {new Date(camp.createdAt).toLocaleDateString()}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -841,3 +873,122 @@ export default function CampaignsPage() {
         </Sidebar >
     );
 }
+
+export default function CampaignsPage() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <CampaignsContent />
+        </Suspense>
+    );
+}
+
+
+function WorkerPoller({ campaigns, onUpdate }: { campaigns: Campaign[], onUpdate: () => void }) {
+    useEffect(() => {
+        const runningCampaigns = campaigns.filter(c => c.jobStatus === 'running');
+        if (runningCampaigns.length === 0) return;
+
+        const intervals: NodeJS.Timeout[] = [];
+
+        runningCampaigns.forEach(camp => {
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/campaigns/${camp.id}/worker`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        // If we processed an item or status changed, update UI
+                        if (data.processed > 0 || data.jobStatus !== 'running') {
+                            onUpdate();
+                        }
+                    }
+                } catch (err) {
+                    console.error('Worker poll failed', err);
+                }
+            }, 3000); // Poll every 3 seconds
+            intervals.push(interval);
+        });
+
+        return () => intervals.forEach(clearInterval);
+    }, [campaigns, onUpdate]);
+
+    return null;
+}
+
+function CampaignStats({ campaignId, initialStats, isRunning }: { campaignId: string, initialStats: any, isRunning: boolean }) {
+    const [stats, setStats] = useState(initialStats);
+    const [loading, setLoading] = useState(false);
+
+    // Poll stats occasionally if running
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (isRunning) {
+            interval = setInterval(() => {
+                fetchStats();
+            }, 5000); // 5s stats refresh
+        }
+        return () => clearInterval(interval);
+    }, [isRunning]);
+
+    const fetchStats = async () => {
+        try {
+            const res = await fetch(`/api/campaigns/${campaignId}/stats`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.stats) {
+                    setStats((prev: any) => ({ ...prev, ...data.stats }));
+                }
+            }
+        } catch (err) {
+            console.error('Stats fetch failed', err);
+        }
+    };
+
+    const total = (stats.sent || 0) + (stats.queued || 0) + (stats.failed || 0);
+    const progress = total > 0 ? Math.round(((stats.sent || 0) + (stats.failed || 0)) / total * 100) : 0;
+
+    return (
+        <div className="mt-md p-sm bg-base-200 rounded-md">
+            <div className="flex justify-between text-xs mb-xs">
+                <span>Progress</span>
+                <span>{progress}% ({stats.sent} sent / {total} total)</span>
+            </div>
+            <div className="h-2 bg-base-300 rounded-full overflow-hidden">
+                <div
+                    className="h-full bg-primary transition-all duration-500"
+                    style={{ width: `${progress}%` }}
+                ></div>
+            </div>
+
+            <div className="flex gap-lg mt-sm pt-sm border-t border-base-300">
+                <div className="text-center">
+                    <div className="text-lg font-bold">{stats.sent}</div>
+                    <div className="text-xs text-muted">Sent</div>
+                </div>
+                <div className="text-center text-success">
+                    <div className="text-lg font-bold">{stats.opened || 0}</div>
+                    <div className="text-xs text-muted">Opened</div>
+                </div>
+                <div className="text-center text-info">
+                    <div className="text-lg font-bold">{stats.replied || 0}</div>
+                    <div className="text-xs text-muted">Replied</div>
+                </div>
+                <div className="text-center text-warning">
+                    <div className="text-lg font-bold">{stats.bounced || 0}</div>
+                    <div className="text-xs text-muted">Bounced</div>
+                </div>
+                {stats.failed > 0 && (
+                    <div className="text-center text-danger">
+                        <div className="text-lg font-bold">{stats.failed}</div>
+                        <div className="text-xs text-muted">Failed</div>
+                    </div>
+                )}
+            </div>
+            <div className="flex justify-end mt-xs">
+                <button className="btn btn-ghost btn-xs text-xs" onClick={fetchStats}>
+                    Refresh Stats ↻
+                </button>
+            </div>
+        </div>
+    );
+}
+

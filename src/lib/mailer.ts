@@ -8,6 +8,7 @@ export interface EmailOptions {
     text?: string;
     from?: string;
     replyTo?: string;
+    tags?: string[];
 }
 
 export interface SendResult {
@@ -83,6 +84,7 @@ export async function sendEmail(options: EmailOptions, config?: SmtpConfig): Pro
             subject: options.subject,
             htmlContent: options.html,
             ...(options.text && { textContent: options.text }),
+            ...(options.tags && { tags: options.tags }),
             ...(replyTo && { replyTo: { email: replyTo } }),
         };
 

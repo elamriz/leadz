@@ -104,19 +104,17 @@ export async function POST(
             });
         }
 
-        // ── Email Campaign Flow (existing) ──────────────────────────
+        // ─── Email Campaign Flow (Background Queue) ──────────────────────────
         const leadFilter: Record<string, unknown> = {
             status: { in: ['NEW', 'READY'] },
             emails: { some: {} },
         };
 
         // If campaign has specific leads selected, only send to those leads
-        // (bypass status/safeSend filters — user explicitly chose these leads)
         if (campaign.selectedLeadIds && campaign.selectedLeadIds.length > 0) {
             leadFilter.id = { in: campaign.selectedLeadIds };
-            delete leadFilter.status; // Don't filter by status for targeted campaigns
+            delete leadFilter.status;
         } else {
-            // Otherwise use niche and other filters
             if (campaign.niche) {
                 leadFilter.niche = { contains: campaign.niche, mode: 'insensitive' };
             }
@@ -128,95 +126,18 @@ export async function POST(
             }
         }
 
-        // ─── 4. Fetch Templates ─────────────────────────────────────────────
-
-        // Fetch eligible templates based on strategy
-        let eligibleTemplates: any[] = [];
-
-        if (campaign.smartSending) {
-            eligibleTemplates = await prisma.emailTemplate.findMany({
-                where: {
-                    isActive: true, // Only active templates
-                    language: campaign.language,
-                    type: campaign.channel,
-                }
-            });
-        } else if (campaign.templateIds && campaign.templateIds.length > 0) {
-            eligibleTemplates = await prisma.emailTemplate.findMany({
-                where: { id: { in: campaign.templateIds }, isActive: true },
-            });
-        } else if (campaign.templateId) {
-            const t = await prisma.emailTemplate.findUnique({ where: { id: campaign.templateId } });
-            if (t && t.isActive) eligibleTemplates = [t];
-        }
-
-        if (eligibleTemplates.length === 0) {
-            return NextResponse.json({ error: 'No valid templates found for this campaign' }, { status: 400 });
-        }
-
-        // Helper to pick a RANDOM template among all templates matching a tag
-        const pickByTag = (templates: any[], tag: string) => {
-            const matches = templates.filter((t: any) => t.tags.includes(tag));
-            if (matches.length === 0) return null;
-            return matches[Math.floor(Math.random() * matches.length)];
-        };
-
-        // Helper to pick template based on lead tags/score
-        const pickSmartTemplate = (lead: any, templates: any[]) => {
-            if (!campaign.smartSending) return null;
-
-            const signal = lead.scoringSignals; // Single object, not array
-
-            // 1. Inaccessible
-            if (signal && signal.isAccessible === false) {
-                const t = pickByTag(templates, 'inaccessible');
-                if (t) return t;
-            }
-
-            // 2. No Website (if URI is empty or "http" only or minimal length)
-            if (!lead.websiteUri || lead.websiteUri.length < 5) {
-                const t = pickByTag(templates, 'no-website');
-                if (t) return t;
-            }
-
-            // 3. High Reputation — rating >= 4.5 always gets reputation template
-            // (if signals exist and scores are bad, even more reason; if no signals, still use reputation)
-            if (lead.rating && lead.rating >= 4.5) {
-                const t = pickByTag(templates, 'reputation');
-                if (t) return t;
-            }
-
-            // 4. Outdated / improvable website
-            // Has a website but design score < 50 OR performance score < 40
-            if (lead.websiteUri && lead.websiteUri.length >= 5) {
-                if (signal && (signal.designScore < 50 || signal.performanceScore < 40)) {
-                    const t = pickByTag(templates, 'outdated-website');
-                    if (t) return t;
-                }
-            }
-
-            // 5. Fallback: random among "general" tagged templates
-            const t = pickByTag(templates, 'general');
-            if (t) return t;
-
-            // Random as last resort
-            return templates[Math.floor(Math.random() * templates.length)];
-        };
-
-
         const leads = await prisma.lead.findMany({
             where: leadFilter,
-            include: {
-                emails: true,
-                scoringSignals: true // Fetch signals for smart logic
-            },
+            include: { emails: true },
             orderBy: { score: 'desc' },
             take: campaign.dailyLimit,
         });
 
-        // Check today's send count
+        // Check if already running or completed today
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
+
+        // Count existing sends for today to respect daily limit
         const todaySends = await prisma.campaignSend.count({
             where: {
                 campaignId: id,
@@ -228,169 +149,72 @@ export async function POST(
         const remainingToday = Math.max(0, campaign.dailyLimit - todaySends);
         if (remainingToday === 0) {
             return NextResponse.json(
-                { error: 'Daily send limit reached', todaySends },
+                { error: 'Daily send limit reached for today', todaySends },
                 { status: 429 }
             );
         }
 
-        // Update campaign status
-        await prisma.campaign.update({
-            where: { id },
-            data: { status: 'ACTIVE' },
-        });
+        // Limit leads to remaining quota
+        const leadsToQueue = leads.slice(0, remainingToday);
 
-        const results = {
-            sent: 0,
-            skipped: 0,
-            failed: 0,
-            reasons: [] as string[],
-        };
+        if (leadsToQueue.length === 0) {
+            return NextResponse.json({ error: 'No eligible leads found to queue' }, { status: 400 });
+        }
 
-        let sendCount = 0;
+        // ─── Enqueue Leads ──────────────────────────────────────────────────
 
-        for (const lead of leads) {
-            if (sendCount >= remainingToday) break;
+        let queuedCount = 0;
+        const queuedLeads = [];
 
-            // Check if can contact (skip cooldown for targeted campaigns — user explicitly chose these leads)
+        for (const lead of leadsToQueue) {
+            // Check constraints again (double check)
             if (!campaign.selectedLeadIds || campaign.selectedLeadIds.length === 0) {
                 const contactCheck = await canContactLead(lead.id, campaign.cooldownDays);
-                if (!contactCheck.canContact) {
-                    results.skipped++;
-                    results.reasons.push(`${lead.displayName}: ${contactCheck.reason}`);
-                    continue;
-                }
+                if (!contactCheck.canContact) continue;
             }
 
-            // Check campaign dedup
             const alreadySent = await hasReceivedCampaign(lead.id, id);
-            if (alreadySent) {
-                results.skipped++;
-                results.reasons.push(`${lead.displayName}: Already received this campaign`);
-                continue;
-            }
+            if (alreadySent) continue;
 
-            // Get best email
             const leadAny = lead as any;
             const email = leadAny.emails.find((e: { isGeneric: boolean; email: string }) => !e.isGeneric) || leadAny.emails[0];
-            if (!email) {
-                results.skipped++;
-                continue;
-            }
+            if (!email) continue;
 
-            // Select Template (Smart or Random)
-            let selectedTemplate = null;
-            if (campaign.smartSending) {
-                selectedTemplate = pickSmartTemplate(lead, eligibleTemplates);
-            } else {
-                selectedTemplate = eligibleTemplates[Math.floor(Math.random() * eligibleTemplates.length)];
-            }
-
-            if (!selectedTemplate) {
-                results.skipped++;
-                continue;
-            }
-
-            // Render template
-            const variables = {
-                company_name: lead.displayName,
-                city: lead.city || lead.formattedAddress?.split(',').pop()?.trim() || '',
-                website: lead.websiteUri || '',
-                niche: lead.niche || '',
-                phone: lead.nationalPhone || '',
-                rating: lead.rating?.toString() || '',
-                review_count: lead.userRatingCount?.toString() || '',
-            };
-
-            const subject = renderTemplate(selectedTemplate.subject, variables);
-            let html = renderTemplate(selectedTemplate.body, variables);
-            html = addUnsubscribeLink(html, `${process.env.NEXT_PUBLIC_APP_URL}/unsubscribe?email=${encodeURIComponent(email.email)}`);
-
-            // Creates send record
-            const send = await prisma.campaignSend.create({
+            // Create QUEUED send record
+            await prisma.campaignSend.create({
                 data: {
                     campaignId: id,
                     leadId: lead.id,
                     email: email.email,
-                    templateUsed: selectedTemplate.name,
                     status: 'QUEUED',
                 },
             });
-
-            // Get SMTP config and rotate sender name
-            const smtpConfig = await getSmtpConfig();
-            let senderName = campaign.senderName || smtpConfig.senderName;
-
-            if (campaign.senderNames && campaign.senderNames.length > 0) {
-                // Pick random sender name
-                senderName = campaign.senderNames[Math.floor(Math.random() * campaign.senderNames.length)];
-            }
-
-            // Send email with Rotating Sender Name
-            const result = await sendEmail({
-                to: email.email,
-                subject,
-                html,
-            }, { ...smtpConfig, senderName });
-
-            if (result.success) {
-                await prisma.campaignSend.update({
-                    where: { id: send.id },
-                    data: { status: 'SENT', sentAt: new Date() },
-                });
-
-                await prisma.lead.update({
-                    where: { id: lead.id },
-                    data: {
-                        status: 'SENT',
-                        lastContactedAt: new Date(),
-                    },
-                });
-
-                await prisma.campaign.update({
-                    where: { id },
-                    data: { totalSent: { increment: 1 } },
-                });
-
-                await logAudit('email_sent', lead.id, `Campaign: ${campaign.name}`);
-                results.sent++;
-                sendCount++;
-            } else {
-                await prisma.campaignSend.update({
-                    where: { id: send.id },
-                    data: {
-                        status: 'FAILED',
-                        errorMessage: result.error,
-                    },
-                });
-
-                await prisma.campaign.update({
-                    where: { id },
-                    data: { totalFailed: { increment: 1 } },
-                });
-
-                results.failed++;
-                results.reasons.push(`${lead.displayName}: ${result.error}`);
-            }
-
-            // Random delay between sends
-            if (sendCount < remainingToday) {
-                await randomDelay(campaign.minDelaySeconds, campaign.maxDelaySeconds);
-            }
+            queuedCount++;
+            queuedLeads.push(lead.id);
         }
 
-        // Update campaign if all leads processed
-        if (results.sent === 0 && results.skipped === leads.length) {
-            await prisma.campaign.update({
-                where: { id },
-                data: { status: 'COMPLETED' },
-            });
+        if (queuedCount === 0) {
+            return NextResponse.json({ error: 'All eligible leads were skipped (already contacted or invalid)' }, { status: 400 });
         }
+
+        // Update campaign status to running
+        await prisma.campaign.update({
+            where: { id },
+            data: {
+                status: 'ACTIVE',
+                jobStatus: 'running',
+                jobTotal: queuedCount
+            },
+        });
 
         return NextResponse.json({
             campaign: { id, name: campaign.name },
             channel: 'email',
-            results,
+            queued: queuedCount,
+            jobStatus: 'running',
+            message: `Enqueued ${queuedCount} leads for background sending`
         });
+
     } catch (error) {
         return NextResponse.json(
             { error: error instanceof Error ? error.message : 'Internal server error' },

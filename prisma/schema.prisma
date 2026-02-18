@@ -269,6 +269,8 @@ model Campaign {
   totalBounced    Int            @default(0)
   totalOpened     Int            @default(0)
   totalReplied    Int            @default(0)
+  jobStatus       String         @default("idle") // idle | running | done
+  jobTotal        Int            @default(0)       // total leads queued for current run
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -277,15 +279,16 @@ model Campaign {
 }
 
 model CampaignSend {
-  id           String     @id @default(uuid())
-  campaignId   String
-  leadId       String
-  email        String
-  status       SendStatus @default(QUEUED)
-  templateUsed String?
-  errorMessage String?
-  sentAt       DateTime?
-  bouncedAt    DateTime?
+  id             String     @id @default(uuid())
+  campaignId     String
+  leadId         String
+  email          String
+  status         SendStatus @default(QUEUED)
+  templateUsed   String?
+  errorMessage   String?
+  brevoMessageId String?    // Brevo message ID for stats lookup
+  sentAt         DateTime?
+  bouncedAt      DateTime?
   openedAt     DateTime?
   repliedAt    DateTime?
   createdAt    DateTime   @default(now())
