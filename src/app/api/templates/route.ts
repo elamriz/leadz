@@ -20,7 +20,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { name, subject, body: templateBody, niche, variables, type = 'email' } = body;
+        const { name, subject, body: templateBody, niche, variables, type = 'email', language = 'fr' } = body;
 
         if (!name || !subject || !templateBody) {
             return NextResponse.json(
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
                 subject,
                 body: templateBody,
                 type,
+                language,
                 niche,
                 variables: variables || detectedVars,
             },
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
     try {
         const body = await request.json();
-        const { id, name, subject, body: templateBody, niche, type } = body;
+        const { id, name, subject, body: templateBody, niche, type, language } = body;
 
         if (!id) {
             return NextResponse.json({ error: 'id is required' }, { status: 400 });
@@ -89,6 +90,7 @@ export async function PUT(request: NextRequest) {
                 ...(templateBody !== undefined && { body: templateBody }),
                 ...(niche !== undefined && { niche }),
                 ...(type !== undefined && { type }),
+                ...(language !== undefined && { language }),
                 variables: detectedVars,
             },
         });

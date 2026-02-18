@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { sendEmail, renderTemplate, addUnsubscribeLink, randomDelay } from '@/lib/mailer';
+import { sendEmail, renderTemplate, addUnsubscribeLink, randomDelay, getSmtpConfig } from '@/lib/mailer';
 import { canContactLead, hasReceivedCampaign, logAudit } from '@/lib/dedup';
 
 export async function POST(
@@ -19,10 +19,6 @@ export async function POST(
             return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
         }
 
-        if (!campaign.template) {
-            return NextResponse.json({ error: 'Campaign has no template' }, { status: 400 });
-        }
-
         // ── WhatsApp Campaign Flow ──────────────────────────────────
         if (campaign.channel === 'whatsapp') {
             const leadFilter: Record<string, unknown> = {
@@ -30,12 +26,19 @@ export async function POST(
                 nationalPhone: { not: null },
             };
 
-            if (campaign.niche) {
-                leadFilter.niche = { contains: campaign.niche, mode: 'insensitive' };
+            // If campaign has specific leads selected, only send to those leads
+            if (campaign.selectedLeadIds && campaign.selectedLeadIds.length > 0) {
+                leadFilter.id = { in: campaign.selectedLeadIds };
+            } else {
+                // Otherwise use niche and other filters
+                if (campaign.niche) {
+                    leadFilter.niche = { contains: campaign.niche, mode: 'insensitive' };
+                }
+                if (campaign.noWebsiteOnly) {
+                    leadFilter.websiteUri = null;
+                }
             }
-            if (campaign.noWebsiteOnly) {
-                leadFilter.websiteUri = null;
-            }
+
             if (campaign.safeSendMode) {
                 leadFilter.lastContactedAt = null;
             }
@@ -73,7 +76,7 @@ export async function POST(
                     review_count: lead.userRatingCount?.toString() || '',
                 };
 
-                const message = renderTemplate(campaign.template.body, variables);
+                const message = renderTemplate(campaign.template?.body || '', variables);
                 const cleanPhone = (lead.nationalPhone || '').replace(/[\s\-\(\)\.+]/g, '');
                 const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 
@@ -106,19 +109,90 @@ export async function POST(
             emails: { some: {} },
         };
 
-        if (campaign.niche) {
-            leadFilter.niche = { contains: campaign.niche, mode: 'insensitive' };
+        // If campaign has specific leads selected, only send to those leads
+        if (campaign.selectedLeadIds && campaign.selectedLeadIds.length > 0) {
+            leadFilter.id = { in: campaign.selectedLeadIds };
+        } else {
+            // Otherwise use niche and other filters
+            if (campaign.niche) {
+                leadFilter.niche = { contains: campaign.niche, mode: 'insensitive' };
+            }
+            if (campaign.noWebsiteOnly) {
+                leadFilter.websiteUri = null;
+            }
         }
-        if (campaign.noWebsiteOnly) {
-            leadFilter.websiteUri = null;
-        }
+
         if (campaign.safeSendMode) {
             leadFilter.lastContactedAt = null;
         }
 
+        // ─── 4. Fetch Templates ─────────────────────────────────────────────
+
+        // Fetch eligible templates based on strategy
+        let eligibleTemplates: any[] = [];
+
+        if (campaign.smartSending) {
+            eligibleTemplates = await prisma.emailTemplate.findMany({
+                where: {
+                    isActive: true, // Only active templates
+                    language: campaign.language,
+                    type: campaign.channel,
+                }
+            });
+        } else if (campaign.templateIds && campaign.templateIds.length > 0) {
+            eligibleTemplates = await prisma.emailTemplate.findMany({
+                where: { id: { in: campaign.templateIds }, isActive: true },
+            });
+        } else if (campaign.templateId) {
+            const t = await prisma.emailTemplate.findUnique({ where: { id: campaign.templateId } });
+            if (t && t.isActive) eligibleTemplates = [t];
+        }
+
+        if (eligibleTemplates.length === 0) {
+            return NextResponse.json({ error: 'No valid templates found for this campaign' }, { status: 400 });
+        }
+
+        // Helper to pick template based on lead tags/score
+        const pickSmartTemplate = (lead: any, templates: any[]) => {
+            if (!campaign.smartSending) return null;
+
+            const signal = lead.scoringSignals; // Single object, not array
+
+            // 1. Inaccessible
+            if (signal && signal.isAccessible === false) {
+                const t = templates.find((t: any) => t.tags.includes('inaccessible'));
+                if (t) return t;
+            }
+
+            // 2. No Website (if URI is empty or "http" only or minimal length)
+            if (!lead.websiteUri || lead.websiteUri.length < 5) {
+                const t = templates.find((t: any) => t.tags.includes('no-website'));
+                if (t) return t;
+            }
+
+            // 3. High Reputation but Bad Site
+            // Rating > 4.5 AND (Performance < 50 OR Design < 50)
+            if (lead.rating && lead.rating >= 4.5) {
+                if (signal && (signal.performanceScore < 50 || signal.designScore < 50)) {
+                    const t = templates.find((t: any) => t.tags.includes('reputation'));
+                    if (t) return t;
+                }
+            }
+
+            // 4. Fallback: "general" tag
+            const general = templates.find((t: any) => t.tags.includes('general'));
+            if (general) return general;
+
+            // Random as last resort
+            return templates[Math.floor(Math.random() * templates.length)];
+        };
+
         const leads = await prisma.lead.findMany({
             where: leadFilter,
-            include: { emails: true },
+            include: {
+                emails: true,
+                scoringSignals: true // Fetch signals for smart logic
+            },
             orderBy: { score: 'desc' },
             take: campaign.dailyLimit,
         });
@@ -177,8 +251,22 @@ export async function POST(
             }
 
             // Get best email
-            const email = lead.emails.find((e: { isGeneric: boolean; email: string }) => !e.isGeneric) || lead.emails[0];
+            const leadAny = lead as any;
+            const email = leadAny.emails.find((e: { isGeneric: boolean; email: string }) => !e.isGeneric) || leadAny.emails[0];
             if (!email) {
+                results.skipped++;
+                continue;
+            }
+
+            // Select Template (Smart or Random)
+            let selectedTemplate = null;
+            if (campaign.smartSending) {
+                selectedTemplate = pickSmartTemplate(lead, eligibleTemplates);
+            } else {
+                selectedTemplate = eligibleTemplates[Math.floor(Math.random() * eligibleTemplates.length)];
+            }
+
+            if (!selectedTemplate) {
                 results.skipped++;
                 continue;
             }
@@ -194,27 +282,36 @@ export async function POST(
                 review_count: lead.userRatingCount?.toString() || '',
             };
 
-            const subject = renderTemplate(campaign.subject, variables);
-            let html = renderTemplate(campaign.template.body, variables);
+            const subject = renderTemplate(selectedTemplate.subject, variables);
+            let html = renderTemplate(selectedTemplate.body, variables);
             html = addUnsubscribeLink(html, `${process.env.NEXT_PUBLIC_APP_URL}/unsubscribe?email=${encodeURIComponent(email.email)}`);
 
-            // Create send record
+            // Creates send record
             const send = await prisma.campaignSend.create({
                 data: {
                     campaignId: id,
                     leadId: lead.id,
                     email: email.email,
-                    templateUsed: campaign.template.name,
+                    templateUsed: selectedTemplate.name,
                     status: 'QUEUED',
                 },
             });
 
-            // Send email
+            // Get SMTP config and rotate sender name
+            const smtpConfig = await getSmtpConfig();
+            let senderName = campaign.senderName || smtpConfig.senderName;
+
+            if (campaign.senderNames && campaign.senderNames.length > 0) {
+                // Pick random sender name
+                senderName = campaign.senderNames[Math.floor(Math.random() * campaign.senderNames.length)];
+            }
+
+            // Send email with Rotating Sender Name
             const result = await sendEmail({
                 to: email.email,
                 subject,
                 html,
-            });
+            }, { ...smtpConfig, senderName });
 
             if (result.success) {
                 await prisma.campaignSend.update({

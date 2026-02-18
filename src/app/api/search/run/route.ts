@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { textSearch, placeDetails, extractDomain, estimateCost } from '@/lib/google-maps';
+import { textSearch, placeDetails, extractDomain, estimateCost, generateGridPoints } from '@/lib/google-maps';
 import { trackRequest, checkDailyCap, checkMonthlyCap, getOrCreateCaps } from '@/lib/usage-tracker';
 import { deduplicateLead } from '@/lib/dedup';
 
@@ -13,8 +13,11 @@ export async function POST(request: NextRequest) {
             latitude,
             longitude,
             radiusKm = 50,
-            maxResults = 60,
+            maxResults = 100,
             dryRun = false,
+            languageCode = 'fr', // Default to French for Belgium/Brussels
+            regionCode = 'BE',   // Default to Belgium
+            groupId,             // Optional group to add leads to
         } = body;
 
         if (!query || !latitude || !longitude) {
@@ -26,11 +29,13 @@ export async function POST(request: NextRequest) {
 
         const caps = await getOrCreateCaps();
 
+        // Generate grid points to cover the search area
+        const gridPoints = generateGridPoints(latitude, longitude, radiusKm, 5);
+
         // Calculate estimates
         const estimatedSearchRequests = Math.min(
-            Math.ceil(maxResults / 20),
+            gridPoints.length,
             caps.perRunSearchLimit,
-            caps.maxPaginationDepth
         );
         const estimatedDetailRequests = Math.min(maxResults, caps.perRunDetailLimit);
         const costEstimate = estimateCost(
@@ -48,6 +53,7 @@ export async function POST(request: NextRequest) {
                     searchRequests: estimatedSearchRequests,
                     detailRequests: estimatedDetailRequests,
                     maxPlaces: Math.min(maxResults, caps.perRunMaxPlaces),
+                    gridCells: gridPoints.length,
                     ...costEstimate,
                 },
             });
@@ -89,16 +95,18 @@ export async function POST(request: NextRequest) {
             },
         });
 
-        // Execute search
+        // Execute search across grid points
         const allPlaces = [];
-        let pageToken: string | undefined;
+        const seenPlaceIds = new Set<string>(); // deduplicate across grid cells
         let searchRequestCount = 0;
         const errors: string[] = [];
 
-        for (let page = 0; page < caps.maxPaginationDepth; page++) {
+        const effectiveMaxPlaces = Math.min(maxResults, caps.perRunMaxPlaces);
+
+        for (const gridPoint of gridPoints) {
             // Check per-run limits
             if (searchRequestCount >= caps.perRunSearchLimit) break;
-            if (allPlaces.length >= caps.perRunMaxPlaces) break;
+            if (allPlaces.length >= effectiveMaxPlaces) break;
 
             // Check daily cap before each request
             const capCheck = await checkDailyCap('search');
@@ -110,23 +118,28 @@ export async function POST(request: NextRequest) {
             try {
                 const result = await textSearch({
                     query,
-                    latitude,
-                    longitude,
-                    radiusKm,
+                    latitude: gridPoint.latitude,
+                    longitude: gridPoint.longitude,
+                    radiusKm: gridPoint.radiusKm,
                     maxResults: 20,
-                    pageToken,
+                    languageCode,
+                    regionCode,
+                    useLocationRestriction: true,
                 });
 
                 searchRequestCount++;
                 await trackRequest('search', 1);
 
-                allPlaces.push(...result.places);
-                pageToken = result.nextPageToken;
-
-                if (!pageToken) break;
+                // Only add places we haven't seen from other grid cells
+                for (const place of result.places) {
+                    if (!seenPlaceIds.has(place.id)) {
+                        seenPlaceIds.add(place.id);
+                        allPlaces.push(place);
+                    }
+                }
             } catch (error) {
-                errors.push(`Search page ${page + 1}: ${error instanceof Error ? error.message : 'Unknown'}`);
-                break;
+                errors.push(`Grid cell ${searchRequestCount + 1}: ${error instanceof Error ? error.message : 'Unknown'}`);
+                // Continue to next grid cell on error
             }
         }
 
@@ -165,43 +178,77 @@ export async function POST(request: NextRequest) {
 
                 if (dedup.isDuplicate && dedup.existingLead) {
                     duplicates++;
-                    // Link existing lead to this run
-                    await prisma.searchRunLead.create({
-                        data: {
+                    // Link existing lead to this run (upsert to avoid unique constraint)
+                    await prisma.searchRunLead.upsert({
+                        where: {
+                            searchRunId_leadId: {
+                                searchRunId: run.id,
+                                leadId: dedup.existingLead.id,
+                            },
+                        },
+                        update: { isDuplicate: true },
+                        create: {
                             searchRunId: run.id,
                             leadId: dedup.existingLead.id,
                             isDuplicate: true,
                         },
                     });
+
+                    // Also add to group if provided
+                    if (groupId) {
+                        try {
+                            await prisma.lead.update({
+                                where: { id: dedup.existingLead.id },
+                                data: { groups: { connect: { id: groupId } } }
+                            });
+                        } catch (e) {
+                            // ignore already connected
+                        }
+                    }
+
                     leadIds.push(dedup.existingLead.id);
                     continue;
                 }
 
                 // Create new lead
                 const domain = placeData.websiteUri ? extractDomain(placeData.websiteUri) : null;
+
+                const createData: any = {
+                    placeId: placeData.id,
+                    displayName: placeData.displayName?.text || 'Unknown Business',
+                    formattedAddress: placeData.formattedAddress,
+                    nationalPhone: placeData.nationalPhoneNumber,
+                    websiteUri: placeData.websiteUri,
+                    websiteDomain: domain,
+                    rating: placeData.rating,
+                    userRatingCount: placeData.userRatingCount,
+                    businessStatus: placeData.businessStatus,
+                    types: placeData.types || [],
+                    latitude: placeData.location?.latitude,
+                    longitude: placeData.location?.longitude,
+                    niche: query,
+                };
+
+                if (groupId) {
+                    createData.groups = { connect: { id: groupId } };
+                }
+
                 const lead = await prisma.lead.create({
-                    data: {
-                        placeId: placeData.id,
-                        displayName: placeData.displayName?.text || 'Unknown Business',
-                        formattedAddress: placeData.formattedAddress,
-                        nationalPhone: placeData.nationalPhoneNumber,
-                        websiteUri: placeData.websiteUri,
-                        websiteDomain: domain,
-                        rating: placeData.rating,
-                        userRatingCount: placeData.userRatingCount,
-                        businessStatus: placeData.businessStatus,
-                        types: placeData.types || [],
-                        latitude: placeData.location?.latitude,
-                        longitude: placeData.location?.longitude,
-                        niche: query,
-                    },
+                    data: createData,
                 });
 
                 newLeads++;
                 leadIds.push(lead.id);
 
-                await prisma.searchRunLead.create({
-                    data: {
+                await prisma.searchRunLead.upsert({
+                    where: {
+                        searchRunId_leadId: {
+                            searchRunId: run.id,
+                            leadId: lead.id,
+                        },
+                    },
+                    update: {},
+                    create: {
                         searchRunId: run.id,
                         leadId: lead.id,
                     },

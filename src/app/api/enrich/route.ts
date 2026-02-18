@@ -74,45 +74,58 @@ export async function POST(request: NextRequest) {
                     const audit = await auditWebsite(lead.websiteUri);
                     result.websiteAudited = true;
 
+                    const auditData = {
+                        hasWebsite: true,
+                        isAccessible: audit.isAccessible,
+                        httpsPresent: audit.httpsPresent,
+                        mobileFriendly: audit.mobileFriendly,
+                        loadTimeMs: audit.loadTimeMs,
+                        hasTitle: audit.hasTitle,
+                        hasDescription: audit.hasDescription,
+                        hasMetaTags: audit.hasMetaTags,
+                        outdatedTech: audit.outdatedTech,
+                        emailFound: (result.emailsFound as number) > 0,
+                        phoneFound: !!lead.nationalPhone,
+                        ratingValue: lead.rating,
+                        reviewCount: lead.userRatingCount,
+                        isOperational: lead.businessStatus === 'OPERATIONAL',
+                        // Deep audit fields
+                        htmlSizeBytes: audit.htmlSizeBytes,
+                        scriptCount: audit.scriptCount,
+                        stylesheetCount: audit.stylesheetCount,
+                        hasLazyImages: audit.hasLazyImages,
+                        inlineStyleCount: audit.inlineStyleCount,
+                        imageCount: audit.imageCount,
+                        imagesWithoutAlt: audit.imagesWithoutAlt,
+                        hasResponsiveImages: audit.hasResponsiveImages,
+                        usesTables: audit.usesTables,
+                        hasFavicon: audit.hasFavicon,
+                        hasSemanticHtml: audit.hasSemanticHtml,
+                        usesDefaultFonts: audit.usesDefaultFonts,
+                        hasFlash: audit.hasFlash,
+                        hasOgTags: audit.hasOgTags,
+                        hasStructuredData: audit.hasStructuredData,
+                        hasCanonical: audit.hasCanonical,
+                        hasH1: audit.hasH1,
+                        multipleH1: audit.multipleH1,
+                        titleLength: audit.titleLength,
+                        oldDoctype: audit.oldDoctype,
+                        oldCmsDetected: audit.oldCmsDetected,
+                        designScore: audit.designScore,
+                        seoScore: audit.seoScore,
+                        performanceScore: audit.performanceScore,
+                        techScore: audit.techScore,
+                    };
+
                     await prisma.scoringSignal.upsert({
                         where: { leadId: lead.id },
-                        update: {
-                            hasWebsite: true,
-                            httpsPresent: audit.httpsPresent,
-                            mobileFriendly: audit.mobileFriendly,
-                            loadTimeMs: audit.loadTimeMs,
-                            hasTitle: audit.hasTitle,
-                            hasDescription: audit.hasDescription,
-                            hasMetaTags: audit.hasMetaTags,
-                            outdatedTech: audit.outdatedTech,
-                            emailFound: (result.emailsFound as number) > 0,
-                            phoneFound: !!lead.nationalPhone,
-                            ratingValue: lead.rating,
-                            reviewCount: lead.userRatingCount,
-                            isOperational: lead.businessStatus === 'OPERATIONAL',
-                            calculatedAt: new Date(),
-                        },
-                        create: {
-                            leadId: lead.id,
-                            hasWebsite: true,
-                            httpsPresent: audit.httpsPresent,
-                            mobileFriendly: audit.mobileFriendly,
-                            loadTimeMs: audit.loadTimeMs,
-                            hasTitle: audit.hasTitle,
-                            hasDescription: audit.hasDescription,
-                            hasMetaTags: audit.hasMetaTags,
-                            outdatedTech: audit.outdatedTech,
-                            emailFound: (result.emailsFound as number) > 0,
-                            phoneFound: !!lead.nationalPhone,
-                            ratingValue: lead.rating,
-                            reviewCount: lead.userRatingCount,
-                            isOperational: lead.businessStatus === 'OPERATIONAL',
-                        },
+                        update: { ...auditData, calculatedAt: new Date() },
+                        create: { leadId: lead.id, ...auditData },
                     });
 
-                    // Calculate score
                     const scoringInput: ScoringInput = {
                         hasWebsite: true,
+                        isAccessible: audit.isAccessible,
                         websiteUri: lead.websiteUri,
                         rating: lead.rating,
                         userRatingCount: lead.userRatingCount,
@@ -124,13 +137,49 @@ export async function POST(request: NextRequest) {
                         loadTimeMs: audit.loadTimeMs,
                         hasMetaTags: audit.hasMetaTags,
                         outdatedTech: audit.outdatedTech,
+                        // Deep audit sub-scores
+                        designScore: audit.designScore,
+                        seoScore: audit.seoScore,
+                        performanceScore: audit.performanceScore,
+                        techScore: audit.techScore,
+                        // Deep audit individual signals
+                        hasH1: audit.hasH1,
+                        hasOgTags: audit.hasOgTags,
+                        hasStructuredData: audit.hasStructuredData,
+                        hasCanonical: audit.hasCanonical,
+                        hasFavicon: audit.hasFavicon,
+                        hasSemanticHtml: audit.hasSemanticHtml,
+                        usesDefaultFonts: audit.usesDefaultFonts,
+                        usesTables: audit.usesTables,
+                        hasFlash: audit.hasFlash,
+                        oldDoctype: audit.oldDoctype,
+                        oldCmsDetected: audit.oldCmsDetected,
+                        htmlSizeBytes: audit.htmlSizeBytes,
+                        scriptCount: audit.scriptCount,
+                        imageCount: audit.imageCount,
+                        imagesWithoutAlt: audit.imagesWithoutAlt,
                     };
 
                     // Load scoring config
                     let weights = DEFAULT_WEIGHTS;
                     const config = await prisma.scoringConfig.findFirst({ where: { isActive: true } });
                     if (config) {
-                        weights = { ...DEFAULT_WEIGHTS, ...config };
+                        weights = {
+                            noWebsiteWeight: config.noWebsiteWeight ?? DEFAULT_WEIGHTS.noWebsiteWeight,
+                            designScoreWeight: config.designScoreWeight ?? DEFAULT_WEIGHTS.designScoreWeight,
+                            seoScoreWeight: config.seoScoreWeight ?? DEFAULT_WEIGHTS.seoScoreWeight,
+                            performanceScoreWeight: config.performanceScoreWeight ?? DEFAULT_WEIGHTS.performanceScoreWeight,
+                            techScoreWeight: config.techScoreWeight ?? DEFAULT_WEIGHTS.techScoreWeight,
+                            highRatingWeight: config.highRatingWeight ?? DEFAULT_WEIGHTS.highRatingWeight,
+                            highRatingThreshold: config.highRatingThreshold ?? DEFAULT_WEIGHTS.highRatingThreshold,
+                            reviewCountWeight: config.reviewCountWeight ?? DEFAULT_WEIGHTS.reviewCountWeight,
+                            reviewCountThreshold: config.reviewCountThreshold ?? DEFAULT_WEIGHTS.reviewCountThreshold,
+                            highReviewCountWeight: config.highReviewCountWeight ?? DEFAULT_WEIGHTS.highReviewCountWeight,
+                            highReviewCountThreshold: config.highReviewCountThreshold ?? DEFAULT_WEIGHTS.highReviewCountThreshold,
+                            hasPhoneWeight: config.hasPhoneWeight ?? DEFAULT_WEIGHTS.hasPhoneWeight,
+                            emailFoundWeight: config.emailFoundWeight ?? DEFAULT_WEIGHTS.emailFoundWeight,
+                            recentContactPenalty: config.recentContactPenalty ?? DEFAULT_WEIGHTS.recentContactPenalty,
+                        };
                     }
 
                     const scoreResult = calculateScore(scoringInput, weights);
@@ -160,7 +209,22 @@ export async function POST(request: NextRequest) {
                 let weights = DEFAULT_WEIGHTS;
                 const config = await prisma.scoringConfig.findFirst({ where: { isActive: true } });
                 if (config) {
-                    weights = { ...DEFAULT_WEIGHTS, ...config };
+                    weights = {
+                        noWebsiteWeight: config.noWebsiteWeight ?? DEFAULT_WEIGHTS.noWebsiteWeight,
+                        designScoreWeight: config.designScoreWeight ?? DEFAULT_WEIGHTS.designScoreWeight,
+                        seoScoreWeight: config.seoScoreWeight ?? DEFAULT_WEIGHTS.seoScoreWeight,
+                        performanceScoreWeight: config.performanceScoreWeight ?? DEFAULT_WEIGHTS.performanceScoreWeight,
+                        techScoreWeight: config.techScoreWeight ?? DEFAULT_WEIGHTS.techScoreWeight,
+                        highRatingWeight: config.highRatingWeight ?? DEFAULT_WEIGHTS.highRatingWeight,
+                        highRatingThreshold: config.highRatingThreshold ?? DEFAULT_WEIGHTS.highRatingThreshold,
+                        reviewCountWeight: config.reviewCountWeight ?? DEFAULT_WEIGHTS.reviewCountWeight,
+                        reviewCountThreshold: config.reviewCountThreshold ?? DEFAULT_WEIGHTS.reviewCountThreshold,
+                        highReviewCountWeight: config.highReviewCountWeight ?? DEFAULT_WEIGHTS.highReviewCountWeight,
+                        highReviewCountThreshold: config.highReviewCountThreshold ?? DEFAULT_WEIGHTS.highReviewCountThreshold,
+                        hasPhoneWeight: config.hasPhoneWeight ?? DEFAULT_WEIGHTS.hasPhoneWeight,
+                        emailFoundWeight: config.emailFoundWeight ?? DEFAULT_WEIGHTS.emailFoundWeight,
+                        recentContactPenalty: config.recentContactPenalty ?? DEFAULT_WEIGHTS.recentContactPenalty,
+                    };
                 }
 
                 const scoreResult = calculateScore(scoringInput, weights);

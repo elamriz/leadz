@@ -1,4 +1,3 @@
-import nodemailer from 'nodemailer';
 import prisma from '@/lib/prisma';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -18,11 +17,10 @@ export interface SendResult {
 }
 
 export interface SmtpConfig {
-    host: string;
-    port: number;
-    user: string;
-    pass: string;
-    from: string;
+    apiKey: string;
+    senderEmail: string;
+    senderName: string;
+    replyToEmail?: string;
 }
 
 // ─── Template Variables ─────────────────────────────────────────
@@ -38,67 +36,79 @@ export interface TemplateVariables {
     [key: string]: string | undefined;
 }
 
-// ─── Get SMTP Config (DB settings take priority over env) ───────
+// ─── Get Brevo Config (DB settings take priority over env) ──────
 export async function getSmtpConfig(): Promise<SmtpConfig> {
     try {
         const dbSettings = await prisma.setting.findMany({
-            where: { key: { startsWith: 'smtp_' } },
+            where: { key: { in: ['brevo_api_key', 'sender_email', 'sender_name', 'reply_to_email', 'smtp_user', 'smtp_pass', 'smtp_from'] } },
         });
         const map: Record<string, string> = {};
         dbSettings.forEach((s: { key: string; value: string }) => { map[s.key] = s.value; });
 
         return {
-            host: map['smtp_host'] || process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-            port: parseInt(map['smtp_port'] || process.env.SMTP_PORT || '587'),
-            user: map['smtp_user'] || process.env.SMTP_USER || '',
-            pass: map['smtp_pass'] || process.env.SMTP_PASS || '',
-            from: map['smtp_from'] || process.env.SMTP_FROM || process.env.SMTP_USER || '',
+            apiKey: map['brevo_api_key'] || process.env.BREVO_API_KEY || '',
+            senderEmail: map['sender_email'] || map['smtp_from'] || process.env.SENDER_EMAIL || process.env.SMTP_FROM || '',
+            senderName: map['sender_name'] || process.env.SENDER_NAME || 'LeadForge',
+            replyToEmail: map['reply_to_email'] || process.env.REPLY_TO_EMAIL,
         };
     } catch {
         // Fallback to env if DB is not available
         return {
-            host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-            port: parseInt(process.env.SMTP_PORT || '587'),
-            user: process.env.SMTP_USER || '',
-            pass: process.env.SMTP_PASS || '',
-            from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+            apiKey: process.env.BREVO_API_KEY || '',
+            senderEmail: process.env.SENDER_EMAIL || process.env.SMTP_FROM || '',
+            senderName: process.env.SENDER_NAME || 'LeadForge',
+            replyToEmail: process.env.REPLY_TO_EMAIL,
         };
     }
 }
 
-// ─── Create Transporter ─────────────────────────────────────────
-function createTransporter(config: SmtpConfig) {
-    return nodemailer.createTransport({
-        host: config.host,
-        port: config.port,
-        secure: config.port === 465,
-        auth: {
-            user: config.user,
-            pass: config.pass,
-        },
-    });
-}
-
-// ─── Send Email ─────────────────────────────────────────────────
+// ─── Send Email via Brevo HTTP API ──────────────────────────────
 export async function sendEmail(options: EmailOptions, config?: SmtpConfig): Promise<SendResult> {
     try {
-        const smtp = config || await getSmtpConfig();
-        const transporter = createTransporter(smtp);
+        const cfg = config || await getSmtpConfig();
 
-        const result = await transporter.sendMail({
-            from: options.from || smtp.from,
-            to: options.to,
+        if (!cfg.apiKey) {
+            return { success: false, error: 'Brevo API key is missing. Set BREVO_API_KEY in .env or configure in Settings.' };
+        }
+
+        const senderEmail = options.from || cfg.senderEmail;
+        if (!senderEmail) {
+            return { success: false, error: 'Sender email not configured. Set SENDER_EMAIL in .env or configure in Settings.' };
+        }
+
+        const replyTo = options.replyTo || cfg.replyToEmail;
+        const payload = {
+            sender: { email: senderEmail, name: cfg.senderName },
+            to: [{ email: options.to }],
             subject: options.subject,
-            html: options.html,
-            text: options.text,
-            replyTo: options.replyTo,
+            htmlContent: options.html,
+            ...(options.text && { textContent: options.text }),
+            ...(replyTo && { replyTo: { email: replyTo } }),
+        };
+
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'accept': 'application/json',
+                'api-key': cfg.apiKey,
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify(payload),
         });
 
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('Brevo API error:', response.status, errorBody);
+            return { success: false, error: `Brevo API error (${response.status}): ${errorBody}` };
+        }
+
+        const result = await response.json();
         return {
             success: true,
             messageId: result.messageId,
         };
     } catch (error) {
+        console.error('Email send error:', error);
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error',
@@ -126,12 +136,24 @@ export function addUnsubscribeLink(html: string, unsubscribeUrl: string): string
     return html + footer;
 }
 
-// ─── Verify SMTP Connection ─────────────────────────────────────
+// ─── Verify Brevo Connection ────────────────────────────────────
 export async function verifySmtp(config?: SmtpConfig): Promise<{ success: boolean; error?: string }> {
     try {
-        const smtp = config || await getSmtpConfig();
-        const transporter = createTransporter(smtp);
-        await transporter.verify();
+        const cfg = config || await getSmtpConfig();
+
+        if (!cfg.apiKey) {
+            return { success: false, error: 'Brevo API key not configured' };
+        }
+
+        // Test API key by fetching account info
+        const response = await fetch('https://api.brevo.com/v3/account', {
+            headers: { 'api-key': cfg.apiKey },
+        });
+
+        if (!response.ok) {
+            return { success: false, error: `Brevo API returned ${response.status}` };
+        }
+
         return { success: true };
     } catch (error) {
         return {

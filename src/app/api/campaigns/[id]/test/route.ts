@@ -43,7 +43,13 @@ export async function POST(
         const html = renderTemplate(campaign.template.body, testVars);
 
         const smtp = await getSmtpConfig();
-        const result = await sendEmail({ to: email, subject, html }, smtp);
+
+        let senderName = campaign.senderName || smtp.senderName;
+        if (campaign.senderNames && campaign.senderNames.length > 0) {
+            senderName = campaign.senderNames[Math.floor(Math.random() * campaign.senderNames.length)];
+        }
+
+        const result = await sendEmail({ to: email, subject, html }, { ...smtp, senderName });
 
         return NextResponse.json({
             success: result.success,

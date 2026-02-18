@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { getSearchKeywords } from '@/lib/niches';
 
 // GET leads with filters, sorting, and pagination
 export async function GET(request: NextRequest) {
@@ -23,7 +24,19 @@ export async function GET(request: NextRequest) {
         const where: Record<string, unknown> = {};
 
         if (status) where.status = status;
-        if (niche) where.niche = { contains: niche, mode: 'insensitive' };
+        if (niche) {
+            const keywords = getSearchKeywords(niche);
+            if (keywords.length > 0) {
+                where.AND = [
+                    ...(where.AND as Array<Record<string, unknown>> || []),
+                    {
+                        OR: keywords.map(k => ({ niche: { contains: k, mode: 'insensitive' } }))
+                    }
+                ];
+            } else {
+                where.niche = { contains: niche, mode: 'insensitive' };
+            }
+        }
 
         if (search) {
             where.OR = [
@@ -45,6 +58,11 @@ export async function GET(request: NextRequest) {
 
         if (tags) {
             where.tags = { hasSome: tags.split(',') };
+        }
+
+        const groupId = searchParams.get('groupId');
+        if (groupId) {
+            where.groups = { some: { id: groupId } };
         }
 
         // Smart lists

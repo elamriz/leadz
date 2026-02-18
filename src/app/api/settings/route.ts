@@ -15,19 +15,24 @@ export async function GET() {
         const settingsMap: Record<string, string> = {};
         settings.forEach((s: { key: string; value: string }) => { settingsMap[s.key] = s.value; });
 
-        const smtpHost = settingsMap['smtp_host'] || process.env.SMTP_HOST || 'smtp-relay.brevo.com';
-        const smtpPort = settingsMap['smtp_port'] || process.env.SMTP_PORT || '587';
-        const smtpUser = settingsMap['smtp_user'] || process.env.SMTP_USER || '';
-        const smtpFrom = settingsMap['smtp_from'] || process.env.SMTP_FROM || process.env.SMTP_USER || '';
-        const smtpConfigured = !!smtpUser;
+        const brevoApiKey = settingsMap['brevo_api_key'] || process.env.BREVO_API_KEY || '';
+        const senderEmail = settingsMap['sender_email'] || settingsMap['smtp_from'] || process.env.SENDER_EMAIL || process.env.SMTP_FROM || '';
+        const senderName = settingsMap['sender_name'] || process.env.SENDER_NAME || 'LeadForge';
+        const brevoConfigured = !!brevoApiKey;
 
         return NextResponse.json({
             smtp: {
-                host: smtpHost,
-                port: smtpPort,
-                user: smtpUser,
-                from: smtpFrom,
-                configured: smtpConfigured,
+                host: 'api.brevo.com',
+                port: '443',
+                user: brevoApiKey ? '(API Key set)' : '',
+                from: senderEmail,
+                configured: brevoConfigured,
+            },
+            brevo: {
+                apiKey: brevoApiKey ? '***' + brevoApiKey.slice(-8) : '',
+                senderEmail,
+                senderName,
+                configured: brevoConfigured,
             },
             googleMaps: {
                 configured: !!process.env.GOOGLE_MAPS_API_KEY,
@@ -72,25 +77,33 @@ export async function POST(request: NextRequest) {
                 break;
             }
 
-            case 'smtp': {
+            case 'smtp':
+            case 'brevo': {
+                // Support saving Brevo API key and sender info
+                const keyMap: Record<string, string> = {
+                    apiKey: 'brevo_api_key',
+                    senderEmail: 'sender_email',
+                    senderName: 'sender_name',
+                    // Legacy SMTP keys for backward compatibility
+                    host: 'smtp_host',
+                    port: 'smtp_port',
+                    user: 'smtp_user',
+                    pass: 'smtp_pass',
+                    from: 'smtp_from',
+                };
                 for (const [key, value] of Object.entries(data)) {
+                    const dbKey = keyMap[key] || key;
                     await prisma.setting.upsert({
-                        where: { key: `smtp_${key}` },
+                        where: { key: dbKey },
                         update: { value: String(value) },
-                        create: { key: `smtp_${key}`, value: String(value) },
+                        create: { key: dbKey, value: String(value) },
                     });
                 }
                 break;
             }
 
             case 'verify_smtp': {
-                const result = await verifySmtp({
-                    host: data.host,
-                    port: parseInt(data.port),
-                    user: data.user,
-                    pass: data.pass,
-                    from: data.from || data.user,
-                });
+                const result = await verifySmtp();
                 return NextResponse.json(result);
             }
 

@@ -9,6 +9,7 @@ interface Template {
     subject: string;
     body: string;
     type: string;
+    language: string;
     niche: string | null;
     variables: string[];
     isActive: boolean;
@@ -134,6 +135,9 @@ export default function TemplatesPage() {
     const [body, setBody] = useState('');
     const [tplNiche, setTplNiche] = useState('');
     const [tplType, setTplType] = useState<'email' | 'whatsapp'>('email');
+    const [tplLang, setTplLang] = useState<'fr' | 'en'>('fr');
+    const [langFilter, setLangFilter] = useState<'' | 'fr' | 'en'>('');
+    const [seeding, setSeeding] = useState(false);
     const [previewVars, setPreviewVars] = useState<Record<string, string>>({
         company_name: 'Acme Electric',
         city: 'Brussels',
@@ -175,6 +179,7 @@ export default function TemplatesPage() {
         setBody('');
         setTplNiche('');
         setTplType('email');
+        setTplLang('fr');
         setEditingId(null);
         setEditorTab('write');
     };
@@ -191,6 +196,7 @@ export default function TemplatesPage() {
         setBody(tpl.body);
         setTplNiche(tpl.niche || '');
         setTplType(tpl.type as 'email' | 'whatsapp');
+        setTplLang((tpl.language as 'fr' | 'en') || 'fr');
         setEditorTab('write');
         setShowEditor(true);
     };
@@ -205,6 +211,7 @@ export default function TemplatesPage() {
                 body,
                 niche: tplNiche || null,
                 type: tplType,
+                language: tplLang,
             };
 
             const res = await fetch('/api/templates', {
@@ -339,6 +346,22 @@ export default function TemplatesPage() {
                 <button className="btn btn-primary btn-sm" onClick={openCreate}>
                     + New Template
                 </button>
+                <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                        setSeeding(true);
+                        try {
+                            const res = await fetch('/api/templates/seed', { method: 'POST' });
+                            const data = await res.json();
+                            alert(`Seeded ${data.created} new, updated ${data.updated} templates`);
+                            fetchTemplates();
+                        } catch { alert('Seed failed'); }
+                        setSeeding(false);
+                    }}
+                    disabled={seeding}
+                >
+                    {seeding ? '⏳' : '🌱'} Seed Templates
+                </button>
             </div>
 
             <div className="page-body">
@@ -348,6 +371,22 @@ export default function TemplatesPage() {
                     </div>
                 ) : (
                     <div className="flex flex-col gap-lg animate-in">
+                        {/* Language Filter Tabs */}
+                        <div className="tabs">
+                            {[
+                                { key: '', label: 'All', icon: '🌍' },
+                                { key: 'fr', label: 'Français', icon: '🇫🇷' },
+                                { key: 'en', label: 'English', icon: '🇬🇧' },
+                            ].map(t => (
+                                <button
+                                    key={t.key}
+                                    className={`tab ${langFilter === t.key ? 'active' : ''}`}
+                                    onClick={() => setLangFilter(t.key as '' | 'fr' | 'en')}
+                                >
+                                    {t.icon} {t.label}
+                                </button>
+                            ))}
+                        </div>
                         {/* Quick Start Templates */}
                         {templates.length === 0 && (
                             <div className="card">
@@ -404,9 +443,9 @@ export default function TemplatesPage() {
                         </div>
 
                         {/* Template List */}
-                        {templates.length > 0 && (
+                        {templates.filter(tpl => !langFilter || tpl.language === langFilter).length > 0 && (
                             <div className="flex flex-col gap-md">
-                                {templates.map(tpl => (
+                                {templates.filter(tpl => !langFilter || tpl.language === langFilter).map(tpl => (
                                     <div key={tpl.id} className="card" style={{ position: 'relative' }}>
                                         <div className="flex justify-between items-center" style={{ flexWrap: 'wrap', gap: 'var(--space-md)' }}>
                                             <div style={{ minWidth: 0, flex: 1 }}>
@@ -418,6 +457,7 @@ export default function TemplatesPage() {
                                                         color: tpl.type === 'whatsapp' ? '#25D366' : '#3b82f6',
                                                         fontSize: '0.7rem',
                                                     }}>{tpl.type === 'whatsapp' ? 'WhatsApp' : 'Email'}</span>
+                                                    <span className="tag" style={{ fontSize: '0.7rem' }}>{tpl.language === 'fr' ? '🇫🇷 FR' : '🇬🇧 EN'}</span>
                                                 </div>
                                                 <div className="text-sm text-muted truncate">Subject: {tpl.subject}</div>
                                                 <div className="flex gap-sm mt-md" style={{ marginTop: 8, flexWrap: 'wrap' }}>

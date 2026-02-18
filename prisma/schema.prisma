@@ -49,39 +49,40 @@ enum SendStatus {
 
 // ─── Lead ───────────────────────────────────────────────────────
 model Lead {
-  id                String       @id @default(uuid())
-  placeId           String?      @unique
-  displayName       String
-  formattedAddress  String?
-  city              String?
-  region            String?
-  country           String?
-  nationalPhone     String?
-  websiteUri        String?
-  websiteDomain     String?
-  rating            Float?
-  userRatingCount   Int?
-  businessStatus    String?
-  types             String[]     @default([])
-  latitude          Float?
-  longitude         Float?
-  niche             String?
-  status            LeadStatus   @default(NEW)
-  score             Int          @default(0)
-  topReasons        String[]     @default([])
-  tags              String[]     @default([])
-  notes             String?
-  lastContactedAt   DateTime?
+  id                  String     @id @default(uuid())
+  placeId             String?    @unique
+  displayName         String
+  formattedAddress    String?
+  city                String?
+  region              String?
+  country             String?
+  nationalPhone       String?
+  websiteUri          String?
+  websiteDomain       String?
+  rating              Float?
+  userRatingCount     Int?
+  businessStatus      String?
+  types               String[]   @default([])
+  latitude            Float?
+  longitude           Float?
+  niche               String?
+  status              LeadStatus @default(NEW)
+  score               Int        @default(0)
+  topReasons          String[]   @default([])
+  tags                String[]   @default([])
+  notes               String?
+  lastContactedAt     DateTime?
   contactCooldownDays Int        @default(30)
 
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  emails            LeadEmail[]
-  scoringSignals    ScoringSignal?
-  campaignSends     CampaignSend[]
-  searchRunLeads    SearchRunLead[]
-  auditLogs         AuditLog[]
+  emails         LeadEmail[]
+  scoringSignals ScoringSignal?
+  campaignSends  CampaignSend[]
+  searchRunLeads SearchRunLead[]
+  auditLogs      AuditLog[]
+  groups         LeadGroup[]
 
   @@index([status])
   @@index([score])
@@ -90,16 +91,25 @@ model Lead {
   @@index([nationalPhone])
 }
 
-model LeadEmail {
-  id          String          @id @default(uuid())
-  leadId      String
-  email       String
-  source      String          @default("website_crawl")
-  confidence  EmailConfidence @default(NONE)
-  isGeneric   Boolean         @default(false)
-  createdAt   DateTime        @default(now())
+model LeadGroup {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  color     String?  @default("#6366f1") // Hex color
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  leads     Lead[]
+}
 
-  lead        Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+model LeadEmail {
+  id         String          @id @default(uuid())
+  leadId     String
+  email      String
+  source     String          @default("website_crawl")
+  confidence EmailConfidence @default(NONE)
+  isGeneric  Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@unique([leadId, email])
   @@index([email])
@@ -107,136 +117,181 @@ model LeadEmail {
 
 // ─── Scoring ────────────────────────────────────────────────────
 model ScoringSignal {
-  id               String   @id @default(uuid())
-  leadId           String   @unique
-  hasWebsite       Boolean  @default(false)
-  httpsPresent     Boolean  @default(false)
-  mobileFriendly   Boolean  @default(false)
-  loadTimeMs       Int?
-  hasMetaTags      Boolean  @default(false)
-  hasTitle         Boolean  @default(false)
-  hasDescription   Boolean  @default(false)
-  outdatedTech     Boolean  @default(false)
-  emailFound       Boolean  @default(false)
-  phoneFound       Boolean  @default(false)
-  ratingValue      Float?
-  reviewCount      Int?
-  isOperational    Boolean  @default(true)
+  id                 String   @id @default(uuid())
+  leadId             String   @unique
+  hasWebsite         Boolean  @default(false)
+  httpsPresent       Boolean  @default(false)
+  mobileFriendly     Boolean  @default(false)
+  loadTimeMs         Int?
+  hasMetaTags        Boolean  @default(false)
+  hasTitle           Boolean  @default(false)
+  hasDescription     Boolean  @default(false)
+  outdatedTech       Boolean  @default(false)
+  emailFound         Boolean  @default(false)
+  phoneFound         Boolean  @default(false)
+  ratingValue        Float?
+  reviewCount        Int?
+  isOperational      Boolean  @default(true)
   distanceFromCenter Float?
-  calculatedAt     DateTime @default(now())
+  isAccessible       Boolean  @default(true)
+  calculatedAt       DateTime @default(now())
 
-  lead             Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  // ─── Deep Audit: Performance ────────────────────────────────
+  htmlSizeBytes       Int?
+  scriptCount         Int?
+  stylesheetCount     Int?
+  hasLazyImages       Boolean @default(false)
+
+  // ─── Deep Audit: Design Quality ─────────────────────────────
+  inlineStyleCount    Int?
+  imageCount          Int?
+  imagesWithoutAlt    Int?
+  hasResponsiveImages Boolean @default(false)
+  usesTables          Boolean @default(false)
+  hasFavicon          Boolean @default(false)
+  hasSemanticHtml     Boolean @default(false)
+  usesDefaultFonts    Boolean @default(false)
+  hasFlash            Boolean @default(false)
+
+  // ─── Deep Audit: SEO ────────────────────────────────────────
+  hasOgTags           Boolean @default(false)
+  hasStructuredData   Boolean @default(false)
+  hasCanonical        Boolean @default(false)
+  hasH1               Boolean @default(false)
+  multipleH1          Boolean @default(false)
+  titleLength         Int?
+
+  // ─── Deep Audit: Tech ───────────────────────────────────────
+  oldDoctype          Boolean @default(false)
+  oldCmsDetected      String?
+
+  // ─── Sub-scores (0-100 each) ────────────────────────────────
+  designScore         Int     @default(0)
+  seoScore            Int     @default(0)
+  performanceScore    Int     @default(0)
+  techScore           Int     @default(0)
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 }
 
 model ScoringConfig {
-  id                    String  @id @default(uuid())
-  name                  String  @default("default")
-  noWebsiteWeight       Int     @default(30)
-  highRatingWeight      Int     @default(10)
-  highRatingThreshold   Float   @default(4.3)
-  reviewCountWeight     Int     @default(15)
-  reviewCountThreshold  Int     @default(50)
-  highReviewCountWeight Int     @default(25)
-  highReviewCountThreshold Int  @default(200)
-  hasPhoneWeight        Int     @default(5)
-  emailFoundWeight      Int     @default(10)
-  noHttpsWeight         Int     @default(10)
-  notMobileFriendlyWeight Int   @default(10)
-  slowLoadWeight        Int     @default(5)
-  slowLoadThreshold     Int     @default(3000)
-  noMetaTagsWeight      Int     @default(5)
-  recentContactPenalty  Int     @default(10)
-  isActive              Boolean @default(true)
+  id                       String  @id @default(uuid())
+  name                     String  @default("default")
+  noWebsiteWeight          Int     @default(30)
+  // Sub-score weights (new)
+  designScoreWeight        Int     @default(12)
+  seoScoreWeight           Int     @default(10)
+  performanceScoreWeight   Int     @default(8)
+  techScoreWeight          Int     @default(10)
+  // Business reputation
+  highRatingWeight         Int     @default(10)
+  highRatingThreshold      Float   @default(4.3)
+  reviewCountWeight        Int     @default(10)
+  reviewCountThreshold     Int     @default(50)
+  highReviewCountWeight    Int     @default(15)
+  highReviewCountThreshold Int     @default(200)
+  // Reachability
+  hasPhoneWeight           Int     @default(5)
+  emailFoundWeight         Int     @default(10)
+  // Penalties
+  recentContactPenalty     Int     @default(10)
+  isActive                 Boolean @default(true)
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ─── Search Runs ────────────────────────────────────────────────
 model SearchRun {
-  id                String    @id @default(uuid())
-  query             String
-  location          String
-  latitude          Float?
-  longitude         Float?
-  radiusKm          Int       @default(50)
-  maxResults        Int       @default(60)
-  maxSearchRequests Int       @default(5)
-  maxDetailRequests Int       @default(60)
-  maxPaginationDepth Int      @default(3)
-  isDryRun          Boolean   @default(false)
-  status            String    @default("pending")
-  totalPlacesFound  Int       @default(0)
-  totalNewLeads     Int       @default(0)
-  totalDuplicates   Int       @default(0)
-  searchRequests    Int       @default(0)
-  detailRequests    Int       @default(0)
-  estimatedCost     Float     @default(0)
-  errors            String[]  @default([])
-  startedAt         DateTime?
-  completedAt       DateTime?
-  createdAt         DateTime  @default(now())
+  id                 String    @id @default(uuid())
+  query              String
+  location           String
+  latitude           Float?
+  longitude          Float?
+  radiusKm           Int       @default(50)
+  maxResults         Int       @default(60)
+  maxSearchRequests  Int       @default(5)
+  maxDetailRequests  Int       @default(60)
+  maxPaginationDepth Int       @default(3)
+  isDryRun           Boolean   @default(false)
+  status             String    @default("pending")
+  totalPlacesFound   Int       @default(0)
+  totalNewLeads      Int       @default(0)
+  totalDuplicates    Int       @default(0)
+  searchRequests     Int       @default(0)
+  detailRequests     Int       @default(0)
+  estimatedCost      Float     @default(0)
+  errors             String[]  @default([])
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
 
-  leads             SearchRunLead[]
+  leads SearchRunLead[]
 }
 
 model SearchRunLead {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   searchRunId String
   leadId      String
-  isDuplicate Boolean   @default(false)
-  createdAt   DateTime  @default(now())
+  isDuplicate Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
-  searchRun   SearchRun @relation(fields: [searchRunId], references: [id], onDelete: Cascade)
-  lead        Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  searchRun SearchRun @relation(fields: [searchRunId], references: [id], onDelete: Cascade)
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@unique([searchRunId, leadId])
 }
 
 // ─── Campaigns ──────────────────────────────────────────────────
 model Campaign {
-  id               String          @id @default(uuid())
-  name             String
-  subject          String
-  templateId       String?
-  niche            String?
-  channel          String          @default("email")
-  noWebsiteOnly    Boolean         @default(false)
-  status           CampaignStatus  @default(DRAFT)
-  dailyLimit       Int             @default(50)
-  minDelaySeconds  Int             @default(5)
-  maxDelaySeconds  Int             @default(45)
-  cooldownDays     Int             @default(30)
-  safeSendMode     Boolean         @default(true)
-  audienceFilters  String?
-  totalSent        Int             @default(0)
-  totalFailed      Int             @default(0)
-  totalBounced     Int             @default(0)
-  totalOpened      Int             @default(0)
-  totalReplied     Int             @default(0)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id              String         @id @default(uuid())
+  name            String
+  subject         String
+  templateId      String?
+  templateIds     String[]       @default([]) // Multiple templates for rotation
+  niche           String?
+  channel         String         @default("email")
+  language        String         @default("fr")
+  senderName      String? // Primary/default sender name
+  senderNames     String[]       @default([]) // List of sender names to rotate through
+  smartSending    Boolean        @default(false) // Automatically select template based on lead status
+  noWebsiteOnly   Boolean        @default(false)
+  status          CampaignStatus @default(DRAFT)
+  dailyLimit      Int            @default(50)
+  minDelaySeconds Int            @default(5)
+  maxDelaySeconds Int            @default(45)
+  cooldownDays    Int            @default(30)
+  safeSendMode    Boolean        @default(true)
+  audienceFilters String?
+  selectedLeadIds String[]       @default([]) // Specific lead IDs for targeted campaigns
+  totalSent       Int            @default(0)
+  totalFailed     Int            @default(0)
+  totalBounced    Int            @default(0)
+  totalOpened     Int            @default(0)
+  totalReplied    Int            @default(0)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  template         EmailTemplate?  @relation(fields: [templateId], references: [id])
-  sends            CampaignSend[]
+  template EmailTemplate? @relation(fields: [templateId], references: [id])
+  sends    CampaignSend[]
 }
 
 model CampaignSend {
-  id           String      @id @default(uuid())
+  id           String     @id @default(uuid())
   campaignId   String
   leadId       String
   email        String
-  status       SendStatus  @default(QUEUED)
+  status       SendStatus @default(QUEUED)
   templateUsed String?
   errorMessage String?
   sentAt       DateTime?
   bouncedAt    DateTime?
   openedAt     DateTime?
   repliedAt    DateTime?
-  createdAt    DateTime    @default(now())
+  createdAt    DateTime   @default(now())
 
-  campaign     Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  lead         Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead     Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([campaignId])
   @@index([leadId])
@@ -244,18 +299,20 @@ model CampaignSend {
 }
 
 model EmailTemplate {
-  id          String     @id @default(uuid())
-  name        String
-  subject     String
-  body        String
-  type        String     @default("email")
-  niche       String?
-  variables   String[]   @default([])
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  subject   String
+  body      String
+  type      String   @default("email")
+  language  String   @default("fr")
+  niche     String?
+  variables String[] @default([])
+  tags      String[] @default([]) // e.g. ["inaccessible", "no-website", "reputation"]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  campaigns   Campaign[]
+  campaigns Campaign[]
 }
 
 // ─── Suppression ────────────────────────────────────────────────
@@ -269,37 +326,37 @@ model SuppressionEntry {
 
 // ─── API Usage ──────────────────────────────────────────────────
 model ApiUsage {
-  id           String   @id @default(uuid())
-  date         DateTime @db.Date
-  endpoint     String
-  requestCount Int      @default(0)
-  estimatedCost Float   @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(uuid())
+  date          DateTime @db.Date
+  endpoint      String
+  requestCount  Int      @default(0)
+  estimatedCost Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([date, endpoint])
 }
 
 model ApiUsageCap {
-  id                    String  @id @default(uuid())
-  dailySearchLimit      Int     @default(100)
-  dailyDetailLimit      Int     @default(500)
-  monthlySearchLimit    Int     @default(2000)
-  monthlyDetailLimit    Int     @default(10000)
-  perRunSearchLimit     Int     @default(10)
-  perRunDetailLimit     Int     @default(100)
-  perRunMaxPlaces       Int     @default(100)
-  maxPaginationDepth    Int     @default(3)
-  searchCostPer1000     Float   @default(32.0)
-  detailCostPer1000     Float   @default(17.0)
-  dailySendLimit        Int     @default(100)
-  monthlySendLimit      Int     @default(2000)
-  warningThreshold80    Boolean @default(true)
-  warningThreshold95    Boolean @default(true)
-  isActive              Boolean @default(true)
+  id                 String  @id @default(uuid())
+  dailySearchLimit   Int     @default(100)
+  dailyDetailLimit   Int     @default(500)
+  monthlySearchLimit Int     @default(2000)
+  monthlyDetailLimit Int     @default(10000)
+  perRunSearchLimit  Int     @default(50)
+  perRunDetailLimit  Int     @default(100)
+  perRunMaxPlaces    Int     @default(100)
+  maxPaginationDepth Int     @default(3)
+  searchCostPer1000  Float   @default(32.0)
+  detailCostPer1000  Float   @default(17.0)
+  dailySendLimit     Int     @default(100)
+  monthlySendLimit   Int     @default(2000)
+  warningThreshold80 Boolean @default(true)
+  warningThreshold95 Boolean @default(true)
+  isActive           Boolean @default(true)
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ─── Audit Log ──────────────────────────────────────────────────
@@ -312,7 +369,7 @@ model AuditLog {
   newValue  String?
   createdAt DateTime @default(now())
 
-  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   @@index([leadId])
   @@index([createdAt])

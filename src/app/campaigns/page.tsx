@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
+import { NICHES } from '@/lib/niches';
 
 interface Campaign {
     id: string;
@@ -19,6 +21,9 @@ interface Campaign {
     totalBounced: number;
     totalReplied: number;
     template: { id: string; name: string } | null;
+    senderName?: string | null;
+    senderNames?: string[];
+    smartSending?: boolean;
     _count: { sends: number };
     createdAt: string;
 }
@@ -28,6 +33,7 @@ interface Template {
     name: string;
     subject: string;
     type: string;
+    language: string;
 }
 
 interface WaLink {
@@ -38,15 +44,8 @@ interface WaLink {
     message: string;
 }
 
-const NICHES = [
-    'Electricians', 'Plumbers', 'Restaurants', 'Hair salons', 'Dental clinics',
-    'Gyms & fitness centers', 'Law firms', 'Real estate agencies', 'Auto repair shops',
-    'Bakeries', 'Coffee shops', 'Hotels', 'Cleaning services', 'Tattoo studios',
-    'Architecture firms', 'Accounting firms', 'Wedding venues', 'Pet grooming',
-    'Photography studios', 'Yoga studios', 'Construction companies', 'Landscaping',
-];
-
 export default function CampaignsPage() {
+    const searchParams = useSearchParams();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(true);
@@ -64,6 +63,7 @@ export default function CampaignsPage() {
     const [testResult, setTestResult] = useState<{ success: boolean; error?: string; subject?: string } | null>(null);
 
     // Form — Wizard
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [step, setStep] = useState(1);
     const [name, setName] = useState('');
     const [channel, setChannel] = useState<'email' | 'whatsapp'>('email');
@@ -72,9 +72,25 @@ export default function CampaignsPage() {
     const [noWebsiteOnly, setNoWebsiteOnly] = useState(false);
     const [safeSend, setSafeSend] = useState(true);
     const [templateId, setTemplateId] = useState('');
+    const [templateIds, setTemplateIds] = useState<string[]>([]);
+    const [campaignLang, setCampaignLang] = useState<'fr' | 'en'>('fr');
+    const [senderName, setSenderName] = useState('Zak (Ryzq Digital)');
     const [subject, setSubject] = useState('');
     const [dailyLimit, setDailyLimit] = useState('50');
     const [cooldownDays, setCooldownDays] = useState('30');
+    const [smartSending, setSmartSending] = useState(false);
+    const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);  // For targeted campaigns
+
+    // Initialize from URL params
+    useEffect(() => {
+        const leadIds = searchParams.get('selectedLeadIds');
+        if (leadIds) {
+            const ids = leadIds.split(',').filter(Boolean);
+            setSelectedLeadIds(ids);
+            setShowCreate(true); // Auto-open modal when leads are selected
+            setName(`Targeted Campaign (${ids.length} leads)`);
+        }
+    }, [searchParams]);
 
     const fetchData = useCallback(async () => {
         try {
@@ -95,9 +111,10 @@ export default function CampaignsPage() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    const filteredTemplates = templates.filter(t => t.type === channel);
+    const filteredTemplates = templates.filter(t => t.type === channel && t.language === campaignLang);
 
     const resetForm = () => {
+        setEditingId(null);
         setStep(1);
         setName('');
         setChannel('email');
@@ -106,27 +123,47 @@ export default function CampaignsPage() {
         setNoWebsiteOnly(false);
         setSafeSend(true);
         setTemplateId('');
+        setTemplateIds([]);
+        setCampaignLang('fr');
+        setSenderName('Zak (Ryzq Digital)');
         setSubject('');
         setDailyLimit('50');
         setCooldownDays('30');
+        setCooldownDays('30');
+        setSmartSending(false);
+        setSelectedLeadIds([]);
     };
 
     const handleCreate = async () => {
         try {
             const selectedNiche = niche === 'custom' ? customNiche : niche === '' ? null : niche;
-            const res = await fetch('/api/campaigns', {
-                method: 'POST',
+
+            const url = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
+            const method = editingId ? 'PATCH' : 'POST';
+
+            const senderNameList = senderName.split('\n').map(s => s.trim()).filter(Boolean);
+
+            const res = await fetch(url, {
+                method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name,
                     subject,
                     channel,
+                    language: campaignLang,
+                    senderName: senderNameList[0] || null,
+                    senderNames: senderNameList,
                     niche: selectedNiche,
                     noWebsiteOnly,
                     templateId: templateId || null,
+                    templateIds,
                     dailyLimit: parseInt(dailyLimit),
+                    minDelaySeconds: 5,
+                    maxDelaySeconds: 45,
                     cooldownDays: parseInt(cooldownDays),
                     safeSendMode: safeSend,
+                    smartSending,
+                    selectedLeadIds,
                 }),
             });
             if (res.ok) {
@@ -168,6 +205,69 @@ export default function CampaignsPage() {
             next.add(leadId);
             return next;
         });
+    };
+
+    const handleDelete = async (campaignId: string) => {
+        if (!confirm('Are you sure you want to delete this campaign?')) return;
+        try {
+            const res = await fetch(`/api/campaigns/${campaignId}`, { method: 'DELETE' });
+            if (res.ok) {
+                fetchData();
+            }
+        } catch (err) {
+            console.error('Delete failed:', err);
+        }
+    };
+
+    const handleEdit = (camp: Campaign) => {
+        setEditingId(camp.id);
+        setName(camp.name);
+        setSubject(camp.subject);
+        setChannel(camp.channel as 'email' | 'whatsapp');
+
+        // Handle niche
+        if (camp.niche && !NICHES.includes(camp.niche as any)) {
+            setNiche('custom');
+            setCustomNiche(camp.niche);
+        } else {
+            setNiche(camp.niche || '');
+            setCustomNiche('');
+        }
+
+        setNoWebsiteOnly(camp.noWebsiteOnly);
+        setSafeSend(camp.safeSendMode);
+        setSmartSending(camp.smartSending || false);
+
+        // Note: Template info might need to be fetched in detail if not fully available, 
+        // but basics are here. For full fidelity we'd fetch GET /api/campaigns/:id
+        // but for now let's use what we have in the list or defaults.
+
+        setDailyLimit(camp.dailyLimit.toString());
+        setCooldownDays(camp.cooldownDays.toString());
+
+        // We'll need to fetch the full campaign details to get templateId, senderName, language etc.
+        // as the list view might be partial.
+        fetch(`/api/campaigns/${camp.id}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.campaign) {
+                    const c = data.campaign;
+                    setCampaignLang(c.language as 'fr' | 'en' || 'fr');
+
+                    // Handle sender names (multiline)
+                    if (c.senderNames && c.senderNames.length > 0) {
+                        setSenderName(c.senderNames.join('\n'));
+                    } else {
+                        setSenderName(c.senderName || 'Zak (Ryzq Digital)');
+                    }
+
+                    setTemplateId(c.templateId || '');
+                    setTemplateIds(c.templateIds || []);
+                    setSelectedLeadIds(c.selectedLeadIds || []);
+                    setStep(1);
+                    setShowCreate(true);
+                }
+            });
     };
 
     const handleTestSend = async (campaignId: string) => {
@@ -265,8 +365,13 @@ export default function CampaignsPage() {
                                                 <div className="text-sm text-muted mt-md" style={{ marginTop: 4 }}>
                                                     Subject: {camp.subject}
                                                 </div>
+                                                <div className="text-sm text-muted" style={{ marginTop: 2 }}>
+                                                    Sender: {camp.senderNames && camp.senderNames.length > 0
+                                                        ? `Rotating (${camp.senderNames.length} variations)`
+                                                        : (camp.senderName || 'Default')}
+                                                </div>
                                                 {camp.template && (
-                                                    <div className="text-xs text-muted">Template: {camp.template.name}</div>
+                                                    <div className="text-xs text-muted" style={{ marginTop: 2 }}>Template: {camp.template.name}</div>
                                                 )}
                                                 <div className="flex gap-lg mt-md" style={{ marginTop: 8 }}>
                                                     <span className="text-sm">✅ {camp.totalSent} sent</span>
@@ -298,6 +403,22 @@ export default function CampaignsPage() {
                                                         🧪 Test Email
                                                     </button>
                                                 )}
+                                                <div className="flex gap-sm">
+                                                    <button
+                                                        className="btn btn-ghost btn-sm"
+                                                        onClick={() => handleEdit(camp)}
+                                                        title="Edit campaign"
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                    <button
+                                                        className="btn btn-ghost btn-sm text-danger"
+                                                        onClick={() => handleDelete(camp.id)}
+                                                        title="Delete campaign"
+                                                    >
+                                                        🗑️
+                                                    </button>
+                                                </div>
                                                 <div className="text-xs text-muted">
                                                     {new Date(camp.createdAt).toLocaleDateString()}
                                                 </div>
@@ -315,7 +436,7 @@ export default function CampaignsPage() {
                     <div className="modal-overlay" onClick={() => setShowCreate(false)}>
                         <div className="modal" style={{ maxWidth: 650 }} onClick={e => e.stopPropagation()}>
                             <div className="modal-header">
-                                <h3 style={{ fontWeight: 700 }}>Create Campaign</h3>
+                                <h3 style={{ fontWeight: 700 }}>{editingId ? 'Edit Campaign' : 'Create Campaign'}</h3>
                                 <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)}>✕</button>
                             </div>
 
@@ -404,15 +525,41 @@ export default function CampaignsPage() {
                                                 </button>
                                             </div>
                                         </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Language</label>
+                                            <div className="flex gap-sm">
+                                                <button
+                                                    className={`btn ${campaignLang === 'fr' ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+                                                    onClick={() => { setCampaignLang('fr'); setTemplateId(''); setTemplateIds([]); }}
+                                                    style={{ flex: 1, padding: '10px' }}
+                                                >
+                                                    <div style={{ fontSize: '1.2rem', marginBottom: 2 }}>🇫🇷</div>
+                                                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>Français</div>
+                                                </button>
+                                                <button
+                                                    className={`btn ${campaignLang === 'en' ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+                                                    onClick={() => { setCampaignLang('en'); setTemplateId(''); setTemplateIds([]); }}
+                                                    style={{ flex: 1, padding: '10px' }}
+                                                >
+                                                    <div style={{ fontSize: '1.2rem', marginBottom: 2 }}>🇬🇧</div>
+                                                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>English</div>
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
                                 {/* Step 2: Audience */}
                                 {step === 2 && (
                                     <div className="flex flex-col gap-lg">
+                                        {selectedLeadIds.length > 0 && (
+                                            <div className="alert-info" style={{ marginBottom: 16 }}>
+                                                <strong>🎯 Targeted Campaign:</strong> This campaign will send to {selectedLeadIds.length} specific lead{selectedLeadIds.length !== 1 ? 's' : ''} you selected.
+                                            </div>
+                                        )}
                                         <div className="form-group">
                                             <label className="form-label">Target Niche</label>
-                                            <select className="form-select" value={niche} onChange={e => setNiche(e.target.value)}>
+                                            <select className="form-select" value={niche} onChange={e => setNiche(e.target.value)} disabled={selectedLeadIds.length > 0}>
                                                 <option value="">All niches</option>
                                                 {NICHES.map(n => (
                                                     <option key={n} value={n}>{n}</option>
@@ -466,7 +613,20 @@ export default function CampaignsPage() {
                                 {step === 3 && (
                                     <div className="flex flex-col gap-lg">
                                         <div className="form-group">
-                                            <label className="form-label">Template</label>
+                                            <label className="form-label">Sender Name(s)</label>
+                                            <div className="text-xs text-muted" style={{ marginBottom: 6 }}>
+                                                Enter one per line to rotate sender names. A random name will be picked for each email to improve deliverability.
+                                            </div>
+                                            <textarea
+                                                className="form-input"
+                                                style={{ minHeight: 80, fontFamily: 'inherit' }}
+                                                value={senderName}
+                                                onChange={e => setSenderName(e.target.value)}
+                                                placeholder={"Zak (Ryzq Digital)\nZak from Ryzq\nZakariya E."}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Primary Template</label>
                                             <select className="form-select" value={templateId} onChange={e => setTemplateId(e.target.value)}>
                                                 <option value="">Select template...</option>
                                                 {filteredTemplates.map(t => (
@@ -475,10 +635,65 @@ export default function CampaignsPage() {
                                             </select>
                                             {filteredTemplates.length === 0 && (
                                                 <div className="text-xs text-muted" style={{ marginTop: 6 }}>
-                                                    No {channel} templates found. <a href="/templates" style={{ color: 'var(--text-accent)' }}>Create one first →</a>
+                                                    No {campaignLang === 'fr' ? 'French' : 'English'} {channel} templates found. <a href="/templates" style={{ color: 'var(--text-accent)' }}>Create one first →</a>
                                                 </div>
                                             )}
                                         </div>
+
+                                        <div className="flex items-center gap-md" style={{
+                                            padding: 'var(--space-md)',
+                                            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid rgba(99, 102, 241, 0.2)',
+                                            marginBottom: 16
+                                        }}>
+                                            <div
+                                                className={`toggle ${smartSending ? 'active' : ''}`}
+                                                onClick={() => {
+                                                    setSmartSending(!smartSending);
+                                                    if (!smartSending) {
+                                                        setTemplateId('');
+                                                        setTemplateIds([]);
+                                                    }
+                                                }}
+                                            />
+                                            <div>
+                                                <div className="text-sm" style={{ fontWeight: 600, color: 'var(--text-accent)' }}>✨ Smart Sending</div>
+                                                <div className="text-xs text-muted">Automatically select the best template based on lead tags (e.g. Inaccessible, No Website, Reputation)</div>
+                                            </div>
+                                        </div>
+
+                                        {!smartSending && (
+                                            <div className="form-group">
+                                                <label className="form-label">Template Rotation (anti-spam)</label>
+                                                <div className="text-xs text-muted" style={{ marginBottom: 8 }}>Select multiple templates — each send will randomly pick one to avoid spam filters.</div>
+                                                <div className="flex flex-col gap-sm">
+                                                    {filteredTemplates.map(t => (
+                                                        <label key={t.id} className="flex items-center gap-sm" style={{
+                                                            padding: '8px 12px',
+                                                            background: templateIds.includes(t.id) ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-tertiary)',
+                                                            borderRadius: 'var(--radius-md)',
+                                                            cursor: 'pointer',
+                                                            border: templateIds.includes(t.id) ? '1px solid var(--text-accent)' : '1px solid var(--border-primary)',
+                                                            transition: 'all 0.2s',
+                                                        }}>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={templateIds.includes(t.id)}
+                                                                onChange={() => {
+                                                                    setTemplateIds(prev =>
+                                                                        prev.includes(t.id)
+                                                                            ? prev.filter(id => id !== t.id)
+                                                                            : [...prev, t.id]
+                                                                    );
+                                                                }}
+                                                            />
+                                                            <span className="text-sm" style={{ fontWeight: 500 }}>{t.name}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                         <div className="form-group">
                                             <label className="form-label">Subject Line</label>
                                             <input className="form-input" value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g., Better website for {company_name}?" />
@@ -511,7 +726,7 @@ export default function CampaignsPage() {
                                     </button>
                                 ) : (
                                     <button className="btn btn-primary" onClick={handleCreate} disabled={!name || !subject}>
-                                        Create Campaign
+                                        {editingId ? 'Save Changes' : 'Create Campaign'}
                                     </button>
                                 )}
                             </div>
@@ -638,6 +853,6 @@ export default function CampaignsPage() {
                     </div>
                 )}
             </div>
-        </Sidebar>
+        </Sidebar >
     );
 }

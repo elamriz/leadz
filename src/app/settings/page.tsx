@@ -8,6 +8,10 @@ interface SettingsData {
     googleMaps: { configured: boolean };
     scoring: {
         noWebsiteWeight: number;
+        designScoreWeight: number;
+        seoScoreWeight: number;
+        performanceScoreWeight: number;
+        techScoreWeight: number;
         highRatingWeight: number;
         highRatingThreshold: number;
         reviewCountWeight: number;
@@ -16,11 +20,6 @@ interface SettingsData {
         highReviewCountThreshold: number;
         hasPhoneWeight: number;
         emailFoundWeight: number;
-        noHttpsWeight: number;
-        notMobileFriendlyWeight: number;
-        slowLoadWeight: number;
-        slowLoadThreshold: number;
-        noMetaTagsWeight: number;
         recentContactPenalty: number;
     } | null;
     caps: {
@@ -79,6 +78,10 @@ export default function SettingsPage() {
             if (data.scoring) {
                 setScoringForm({
                     noWebsiteWeight: data.scoring.noWebsiteWeight,
+                    designScoreWeight: data.scoring.designScoreWeight,
+                    seoScoreWeight: data.scoring.seoScoreWeight,
+                    performanceScoreWeight: data.scoring.performanceScoreWeight,
+                    techScoreWeight: data.scoring.techScoreWeight,
                     highRatingWeight: data.scoring.highRatingWeight,
                     highRatingThreshold: data.scoring.highRatingThreshold,
                     reviewCountWeight: data.scoring.reviewCountWeight,
@@ -87,11 +90,6 @@ export default function SettingsPage() {
                     highReviewCountThreshold: data.scoring.highReviewCountThreshold,
                     hasPhoneWeight: data.scoring.hasPhoneWeight,
                     emailFoundWeight: data.scoring.emailFoundWeight,
-                    noHttpsWeight: data.scoring.noHttpsWeight,
-                    notMobileFriendlyWeight: data.scoring.notMobileFriendlyWeight,
-                    slowLoadWeight: data.scoring.slowLoadWeight,
-                    slowLoadThreshold: data.scoring.slowLoadThreshold,
-                    noMetaTagsWeight: data.scoring.noMetaTagsWeight,
                     recentContactPenalty: data.scoring.recentContactPenalty,
                 });
             }
@@ -410,17 +408,16 @@ export default function SettingsPage() {
                                 <div className="flex flex-col gap-xl">
                                     <div>
                                         <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 'var(--space-md)', color: 'var(--text-accent)' }}>
-                                            Website Signals
+                                            Website Quality Sub-Scores
                                         </h4>
                                         <div className="form-row" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
                                             {renderField('No Website Bonus', 'noWebsiteWeight', scoringForm, updateScoring, 'Points when no website found')}
-                                            {renderField('No HTTPS Bonus', 'noHttpsWeight', scoringForm, updateScoring, 'Points for missing SSL')}
-                                            {renderField('Not Mobile-Friendly', 'notMobileFriendlyWeight', scoringForm, updateScoring, 'Points for non-responsive site')}
+                                            {renderField('Design Quality Weight', 'designScoreWeight', scoringForm, updateScoring, 'Max points from poor design (tables, fonts, etc.)')}
+                                            {renderField('SEO Quality Weight', 'seoScoreWeight', scoringForm, updateScoring, 'Max points from bad SEO (meta, H1, OG tags)')}
                                         </div>
                                         <div className="form-row mt-md">
-                                            {renderField('Slow Load Bonus', 'slowLoadWeight', scoringForm, updateScoring, 'Points for slow websites')}
-                                            {renderField('Slow Load Threshold (ms)', 'slowLoadThreshold', scoringForm, updateScoring, 'Load time considered slow')}
-                                            {renderField('No Meta Tags Bonus', 'noMetaTagsWeight', scoringForm, updateScoring, 'Points for missing SEO tags')}
+                                            {renderField('Performance Weight', 'performanceScoreWeight', scoringForm, updateScoring, 'Max points from slow/bloated sites')}
+                                            {renderField('Tech Quality Weight', 'techScoreWeight', scoringForm, updateScoring, 'Max points from outdated tech (jQuery, old CMS)')}
                                         </div>
                                     </div>
 

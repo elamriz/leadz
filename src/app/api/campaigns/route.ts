@@ -27,18 +27,25 @@ export async function GET() {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
+        console.log('Campaign creation payload:', JSON.stringify(body, null, 2)); // Debug payload
         const {
             name,
             subject,
             templateId,
+            templateIds = [],
             niche,
             channel = 'email',
+            language = 'fr',
+            senderName,
+            senderNames = [],
             noWebsiteOnly = false,
             dailyLimit = 50,
             minDelaySeconds = 5,
             maxDelaySeconds = 45,
             cooldownDays = 30,
             safeSendMode = true,
+            smartSending = false,
+            selectedLeadIds = [],
         } = body;
 
         if (!name || !subject) {
@@ -50,14 +57,20 @@ export async function POST(request: NextRequest) {
                 name,
                 subject,
                 templateId,
+                templateIds,
                 niche,
                 channel,
+                language,
+                senderName,
+                senderNames,
                 noWebsiteOnly,
                 dailyLimit,
                 minDelaySeconds,
                 maxDelaySeconds,
                 cooldownDays,
                 safeSendMode,
+                smartSending,
+                selectedLeadIds,
             },
             include: { template: true },
         });
