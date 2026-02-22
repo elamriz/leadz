@@ -81,6 +81,7 @@ export default function LeadsPage() {
     const [smartList, setSmartList] = useState('');
     const [search, setSearch] = useState('');
     const [nicheFilter, setNicheFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
     const [totalPages, setTotalPages] = useState(1);
@@ -134,6 +135,7 @@ export default function LeadsPage() {
             if (smartList) params.set('smartList', smartList);
             if (search) params.set('search', search);
             if (nicheFilter) params.set('niche', nicheFilter);
+            if (statusFilter) params.set('status', statusFilter);
             if (selectedGroupId) params.set('groupId', selectedGroupId);
 
             const res = await fetch(`/api/leads?${params}`);
@@ -146,7 +148,7 @@ export default function LeadsPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, pageSize, smartList, search, sortBy, sortOrder, nicheFilter, selectedGroupId]);
+    }, [page, pageSize, smartList, search, sortBy, sortOrder, nicheFilter, statusFilter, selectedGroupId]);
 
     useEffect(() => {
         fetchLeads();
@@ -417,7 +419,17 @@ export default function LeadsPage() {
                             style={{ width: 180, padding: '6px 12px', fontSize: '0.82rem' }}
                         />
 
-
+                        <select
+                            className="form-select"
+                            value={statusFilter}
+                            onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
+                            style={{ width: 'auto', padding: '6px 12px', fontSize: '0.82rem' }}
+                        >
+                            <option value="">All Statuses</option>
+                            {STATUS_OPTIONS.map(s => (
+                                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                            ))}
+                        </select>
 
                         {selectedIds.size > 0 && (
                             <div className="flex gap-sm items-center" style={{ flexWrap: 'wrap' }}>

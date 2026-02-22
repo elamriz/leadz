@@ -10,6 +10,7 @@ interface Campaign {
     name: string;
     subject: string;
     niche: string | null;
+    groupId: string | null;
     channel: string;
     noWebsiteOnly: boolean;
     status: string;
@@ -21,6 +22,7 @@ interface Campaign {
     totalBounced: number;
     totalReplied: number;
     template: { id: string; name: string } | null;
+    group: { id: string; name: string; color: string | null } | null;
     senderName?: string | null;
     senderNames?: string[];
     smartSending?: boolean;
@@ -39,6 +41,13 @@ interface Template {
     language: string;
 }
 
+interface Group {
+    id: string;
+    name: string;
+    color: string | null;
+    _count: { leads: number };
+}
+
 interface WaLink {
     leadId: string;
     name: string;
@@ -51,6 +60,7 @@ function CampaignsContent() {
     const searchParams = useSearchParams();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [templates, setTemplates] = useState<Template[]>([]);
+    const [groups, setGroups] = useState<Group[]>([]);
     const [loading, setLoading] = useState(true);
     const [showCreate, setShowCreate] = useState(false);
     const [sending, setSending] = useState<string | null>(null);
@@ -70,7 +80,10 @@ function CampaignsContent() {
     const [step, setStep] = useState(1);
     const [name, setName] = useState('');
     const [channel, setChannel] = useState<'email' | 'whatsapp'>('email');
-    const [niche, setNiche] = useState('');
+    // nicheVar = template variable {niche}, separate from audience
+    const [nicheVar, setNicheVar] = useState('');
+    // groupId = audience filter (null = all leads)
+    const [groupId, setGroupId] = useState<string>('');
     const [noWebsiteOnly, setNoWebsiteOnly] = useState(false);
     const [safeSend, setSafeSend] = useState(true);
     const [templateId, setTemplateId] = useState('');
@@ -96,14 +109,17 @@ function CampaignsContent() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [campRes, tmplRes] = await Promise.all([
+            const [campRes, tmplRes, grpRes] = await Promise.all([
                 fetch('/api/campaigns'),
                 fetch('/api/templates'),
+                fetch('/api/groups'),
             ]);
             const campData = await campRes.json();
             const tmplData = await tmplRes.json();
+            const grpData = await grpRes.json();
             setCampaigns(campData.campaigns || []);
             setTemplates(tmplData.templates || []);
+            setGroups(grpData.groups || []);
         } catch (err) {
             console.error('Failed to load:', err);
         } finally {
@@ -120,7 +136,8 @@ function CampaignsContent() {
         setStep(1);
         setName('');
         setChannel('email');
-        setNiche('');
+        setNicheVar('');
+        setGroupId('');
         setNoWebsiteOnly(false);
         setSafeSend(true);
         setTemplateId('');
@@ -130,15 +147,12 @@ function CampaignsContent() {
         setSubject('');
         setDailyLimit('50');
         setCooldownDays('30');
-        setCooldownDays('30');
         setSmartSending(false);
         setSelectedLeadIds([]);
     };
 
     const handleCreate = async () => {
         try {
-            const selectedNiche = niche.trim() || null;
-
             const url = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
             const method = editingId ? 'PATCH' : 'POST';
 
@@ -154,7 +168,8 @@ function CampaignsContent() {
                     language: campaignLang,
                     senderName: senderNameList[0] || null,
                     senderNames: senderNameList,
-                    niche: selectedNiche,
+                    niche: nicheVar.trim() || null,   // template variable only
+                    groupId: groupId || null,          // audience filter
                     noWebsiteOnly,
                     templateId: templateId || null,
                     templateIds,
@@ -225,24 +240,14 @@ function CampaignsContent() {
         setName(camp.name);
         setSubject(camp.subject);
         setChannel(camp.channel as 'email' | 'whatsapp');
-
-        // Handle niche
-        setNiche(camp.niche || '');
-
-
+        setNicheVar(camp.niche || '');
+        setGroupId(camp.groupId || '');
         setNoWebsiteOnly(camp.noWebsiteOnly);
         setSafeSend(camp.safeSendMode);
         setSmartSending(camp.smartSending || false);
-
-        // Note: Template info might need to be fetched in detail if not fully available, 
-        // but basics are here. For full fidelity we'd fetch GET /api/campaigns/:id
-        // but for now let's use what we have in the list or defaults.
-
         setDailyLimit(camp.dailyLimit.toString());
         setCooldownDays(camp.cooldownDays.toString());
 
-        // We'll need to fetch the full campaign details to get templateId, senderName, language etc.
-        // as the list view might be partial.
         fetch(`/api/campaigns/${camp.id}`)
             .then(res => res.json())
             .then(data => {
@@ -250,7 +255,6 @@ function CampaignsContent() {
                     const c = data.campaign;
                     setCampaignLang(c.language as 'fr' | 'en' || 'fr');
 
-                    // Handle sender names (multiline)
                     if (c.senderNames && c.senderNames.length > 0) {
                         setSenderName(c.senderNames.join('\n'));
                     } else {
@@ -394,7 +398,16 @@ function CampaignsContent() {
                                                     />
 
                                                     <div className="flex gap-sm mt-md" style={{ marginTop: 8 }}>
-                                                        {camp.niche && <span className="tag">{camp.niche}</span>}
+                                                        {/* Audience badge */}
+                                                        {camp.group ? (
+                                                            <span className="tag" style={{ background: `${camp.group.color || '#6366f1'}20`, color: camp.group.color || 'var(--text-accent)', border: `1px solid ${camp.group.color || '#6366f1'}40` }}>
+                                                                📁 {camp.group.name}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="tag">👥 All Leads</span>
+                                                        )}
+                                                        {/* Niche as template variable */}
+                                                        {camp.niche && <span className="tag">🏷️ {camp.niche}</span>}
                                                         {camp.noWebsiteOnly && <span className="tag">🌐 No Website Only</span>}
                                                         {camp.safeSendMode && <span className="tag">🛡 Safe Send</span>}
                                                         <span className="tag">Max {camp.dailyLimit}/day</span>
@@ -571,6 +584,15 @@ function CampaignsContent() {
                                                 </button>
                                             </div>
                                         </div>
+                                        <div className="form-group">
+                                            <label className="form-label">🏷️ Niche variable <span className="text-xs text-muted" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional — injected as <code style={{ fontFamily: 'monospace' }}>{'{niche}'}</code> in templates)</span></label>
+                                            <input
+                                                className="form-input"
+                                                value={nicheVar}
+                                                onChange={e => setNicheVar(e.target.value)}
+                                                placeholder="e.g. électriciens, plombiers, restaurants..."
+                                            />
+                                        </div>
                                     </div>
                                 )}
 
@@ -582,16 +604,83 @@ function CampaignsContent() {
                                                 <strong>🎯 Targeted Campaign:</strong> This campaign will send to {selectedLeadIds.length} specific lead{selectedLeadIds.length !== 1 ? 's' : ''} you selected.
                                             </div>
                                         )}
+
+                                        {/* Group Picker */}
                                         <div className="form-group">
-                                            <label className="form-label">Target Niche</label>
-                                            <input
-                                                className="form-input"
-                                                value={niche}
-                                                onChange={e => setNiche(e.target.value)}
-                                                placeholder="e.g. Électriciens, Plombiers, Restaurants..."
-                                                disabled={selectedLeadIds.length > 0}
-                                            />
-                                            <div className="text-xs text-muted" style={{ marginTop: 4 }}>Leave empty to target all niches. Only used when no specific leads are selected.</div>
+                                            <label className="form-label">🎯 Audience — Target Group</label>
+                                            <div className="text-xs text-muted" style={{ marginBottom: 8 }}>
+                                                Choose which leads receive this campaign. Select a group or send to all leads.
+                                            </div>
+
+                                            {/* All leads option */}
+                                            <div
+                                                onClick={() => setGroupId('')}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 12,
+                                                    padding: '12px 16px',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: `1px solid ${groupId === '' ? 'var(--text-accent)' : 'var(--border-primary)'}`,
+                                                    background: groupId === '' ? 'rgba(99,102,241,0.08)' : 'var(--bg-tertiary)',
+                                                    cursor: 'pointer',
+                                                    marginBottom: 8,
+                                                    transition: 'all 0.18s',
+                                                }}
+                                            >
+                                                <span style={{ fontSize: '1.4rem' }}>👥</span>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontWeight: 600 }}>All Leads</div>
+                                                    <div className="text-xs text-muted">Target every eligible lead in the database</div>
+                                                </div>
+                                                {groupId === '' && (
+                                                    <span style={{ color: 'var(--text-accent)', fontWeight: 700 }}>✓</span>
+                                                )}
+                                            </div>
+
+                                            {/* Group options */}
+                                            {groups.length === 0 ? (
+                                                <div className="text-xs text-muted" style={{ padding: '8px 0' }}>
+                                                    No groups yet. <a href="/leads" style={{ color: 'var(--text-accent)' }}>Create a group in Leads →</a>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col gap-sm">
+                                                    {groups.map(g => (
+                                                        <div
+                                                            key={g.id}
+                                                            onClick={() => setGroupId(groupId === g.id ? '' : g.id)}
+                                                            style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 12,
+                                                                padding: '12px 16px',
+                                                                borderRadius: 'var(--radius-md)',
+                                                                border: `1px solid ${groupId === g.id ? (g.color || '#6366f1') : 'var(--border-primary)'}`,
+                                                                background: groupId === g.id ? `${g.color || '#6366f1'}18` : 'var(--bg-tertiary)',
+                                                                cursor: 'pointer',
+                                                                transition: 'all 0.18s',
+                                                            }}
+                                                        >
+                                                            <span
+                                                                style={{
+                                                                    width: 14,
+                                                                    height: 14,
+                                                                    borderRadius: '50%',
+                                                                    background: g.color || '#6366f1',
+                                                                    flexShrink: 0,
+                                                                }}
+                                                            />
+                                                            <div style={{ flex: 1 }}>
+                                                                <div style={{ fontWeight: 600 }}>{g.name}</div>
+                                                                <div className="text-xs text-muted">{g._count.leads} lead{g._count.leads !== 1 ? 's' : ''}</div>
+                                                            </div>
+                                                            {groupId === g.id && (
+                                                                <span style={{ color: g.color || 'var(--text-accent)', fontWeight: 700 }}>✓</span>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className="flex items-center gap-md" style={{

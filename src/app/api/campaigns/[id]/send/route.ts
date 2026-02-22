@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { sendEmail, renderTemplate, addUnsubscribeLink, randomDelay, getSmtpConfig } from '@/lib/mailer';
+import { sendEmail, renderTemplate, addUnsubscribeLink, randomDelay, getSmtpConfig, formatCity } from '@/lib/mailer';
 import { canContactLead, hasReceivedCampaign, logAudit } from '@/lib/dedup';
 
 export async function POST(
@@ -32,9 +32,9 @@ export async function POST(
                 leadFilter.id = { in: campaign.selectedLeadIds };
                 delete leadFilter.status; // Don't filter by status for targeted campaigns
             } else {
-                // Otherwise use niche and other filters
-                if (campaign.niche) {
-                    leadFilter.niche = { contains: campaign.niche, mode: 'insensitive' };
+                // Filter by group if set (group overrides individual niche filtering)
+                if (campaign.groupId) {
+                    leadFilter.groups = { some: { id: campaign.groupId } };
                 }
                 if (campaign.noWebsiteOnly) {
                     leadFilter.websiteUri = null;
@@ -69,7 +69,7 @@ export async function POST(
 
                 const variables = {
                     company_name: lead.displayName,
-                    city: lead.city || lead.formattedAddress?.split(',').pop()?.trim() || '',
+                    city: formatCity(lead.city || lead.formattedAddress?.split(',').pop()?.trim()),
                     website: lead.websiteUri || '',
                     niche: lead.niche || '',
                     phone: lead.nationalPhone || '',
@@ -115,8 +115,9 @@ export async function POST(
             leadFilter.id = { in: campaign.selectedLeadIds };
             delete leadFilter.status;
         } else {
-            if (campaign.niche) {
-                leadFilter.niche = { contains: campaign.niche, mode: 'insensitive' };
+            // Filter by group if set
+            if (campaign.groupId) {
+                leadFilter.groups = { some: { id: campaign.groupId } };
             }
             if (campaign.noWebsiteOnly) {
                 leadFilter.websiteUri = null;

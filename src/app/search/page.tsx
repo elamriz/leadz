@@ -155,8 +155,8 @@ export default function SearchPage() {
     const [location, setLocation] = useState('');
     const [customLat, setCustomLat] = useState('50.8503');
     const [customLng, setCustomLng] = useState('4.3517');
-    const [radius, setRadius] = useState(50);
-    const [maxResults, setMaxResults] = useState('60');
+    const [radius, setRadius] = useState(25);
+    const [maxResults, setMaxResults] = useState('200');
     const [estimate, setEstimate] = useState<SearchEstimate | null>(null);
     const [result, setResult] = useState<SearchResult | null>(null);
     const [loading, setLoading] = useState(false);
@@ -453,7 +453,7 @@ export default function SearchPage() {
 
                                     <div className="form-group">
                                         <label className="form-label">Max Results</label>
-                                        <input className="form-input" type="number" value={maxResults} onChange={e => setMaxResults(e.target.value)} min="1" max="200" />
+                                        <input className="form-input" type="number" value={maxResults} onChange={e => setMaxResults(e.target.value)} min="1" max="1000" />
                                     </div>
 
                                     {/* Group Selection */}

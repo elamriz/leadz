@@ -8,6 +8,7 @@ export async function GET() {
             orderBy: { createdAt: 'desc' },
             include: {
                 template: { select: { id: true, name: true } },
+                group: { select: { id: true, name: true, color: true } },
                 _count: {
                     select: { sends: true },
                 },
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest) {
             templateId,
             templateIds = [],
             niche,
+            groupId,
             channel = 'email',
             language = 'fr',
             senderName,
@@ -62,6 +64,7 @@ export async function POST(request: NextRequest) {
                 templateId,
                 templateIds,
                 niche,
+                groupId: groupId || null,
                 channel,
                 language,
                 senderName,

@@ -173,6 +173,8 @@ export async function textSearch(params: SearchParams): Promise<PlaceSearchResul
     const body: Record<string, unknown> = {
         textQuery: params.query,
         maxResultCount: Math.min(params.maxResults || 20, 20), // API max is 20 per page
+        // languageCode MUST be in the JSON body — not an HTTP header
+        languageCode: params.languageCode || 'fr',
     };
 
     if (params.useLocationRestriction) {
@@ -200,6 +202,8 @@ export async function textSearch(params: SearchParams): Promise<PlaceSearchResul
         body.regionCode = params.regionCode;
     }
 
+    // rankPreference: DISTANCE makes each grid cell surface businesses closest to that point
+    // giving more unique results across cells. RELEVANCE is Google's default.
     if (params.rankPreference) {
         body.rankPreference = params.rankPreference;
     }
@@ -211,7 +215,6 @@ export async function textSearch(params: SearchParams): Promise<PlaceSearchResul
                 'Content-Type': 'application/json',
                 'X-Goog-Api-Key': apiKey,
                 'X-Goog-FieldMask': FIELD_MASK,
-                ...(params.languageCode && { 'Accept-Language': params.languageCode }),
             },
             body: JSON.stringify(body),
         })

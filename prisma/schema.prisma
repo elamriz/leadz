@@ -98,6 +98,7 @@ model LeadGroup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   leads     Lead[]
+  campaigns Campaign[]
 }
 
 model LeadEmail {
@@ -249,7 +250,8 @@ model Campaign {
   subject         String
   templateId      String?
   templateIds     String[]       @default([]) // Multiple templates for rotation
-  niche           String?
+  niche           String?        // Template variable only — injected into {niche} placeholder
+  groupId         String?        // Audience: target all leads in this group (null = all leads)
   channel         String         @default("email")
   language        String         @default("fr")
   senderName      String? // Primary/default sender name
@@ -275,6 +277,7 @@ model Campaign {
   updatedAt       DateTime       @updatedAt
 
   template EmailTemplate? @relation(fields: [templateId], references: [id])
+  group    LeadGroup?     @relation(fields: [groupId], references: [id])
   sends    CampaignSend[]
 }
 

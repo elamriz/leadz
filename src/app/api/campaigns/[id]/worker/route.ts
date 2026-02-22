@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { sendEmail, renderTemplate, addUnsubscribeLink, getSmtpConfig } from '@/lib/mailer';
+import { sendEmail, renderTemplate, addUnsubscribeLink, getSmtpConfig, formatCity } from '@/lib/mailer';
 import { logAudit } from '@/lib/dedup';
 
 export const dynamic = 'force-dynamic';
@@ -112,7 +112,7 @@ export async function GET(
         // 2. Render content
         const variables = {
             company_name: lead.displayName,
-            city: lead.city || lead.formattedAddress?.split(',').pop()?.trim() || '',
+            city: formatCity(lead.city || lead.formattedAddress?.split(',').pop()?.trim()),
             website: lead.websiteUri || '',
             niche: lead.niche || '',
             phone: lead.nationalPhone || '',

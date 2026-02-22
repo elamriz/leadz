@@ -118,6 +118,15 @@ export async function sendEmail(options: EmailOptions, config?: SmtpConfig): Pro
     }
 }
 
+// ─── Format City (remove zip code) ──────────────────────────────
+export function formatCity(city: string | null | undefined): string {
+    if (!city) return '';
+    // Removes leading digits and spaces (e.g. "1000 Bruxelles" -> "Bruxelles")
+    const cleaned = city.replace(/^[\d-]+\s*/, '').trim();
+    // Capitalize first letter just in case
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
 // ─── Render Template ────────────────────────────────────────────
 export function renderTemplate(template: string, variables: TemplateVariables): string {
     let rendered = template;
