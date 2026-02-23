@@ -32,49 +32,43 @@ const DEFAULT_TEMPLATES = [
         name: 'Web Development Offer',
         type: 'email' as const,
         subject: 'A better website for {company_name}?',
-        body: `<div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
-  <p>Hi there,</p>
+        body: `Bonjour,
 
-  <p>I came across <strong>{company_name}</strong> in {city} and was impressed by your business. However, I noticed there might be an opportunity to improve your online presence.</p>
+Je suis tombé sur {company_name} à {city} et j'ai été impressionné par votre activité. Cependant, j'ai remarqué qu'il y aurait une opportunité d'améliorer votre présence en ligne.
 
-  <p>At our agency, we specialize in creating modern, fast, and mobile-friendly websites that help businesses like yours:</p>
+Nous sommes spécialisés dans la création de sites web modernes, rapides et adaptés au mobile qui aident les entreprises comme la vôtre à :
 
-  <ul>
-    <li>Attract more customers through search engines</li>
-    <li>Look professional and trustworthy online</li>
-    <li>Convert visitors into paying clients</li>
-  </ul>
+- Attirer plus de clients via les moteurs de recherche
+- Avoir une image professionnelle et rassurante en ligne
+- Convertir les visiteurs en clients
 
-  <p>Would you be open to a quick chat about how we could help {company_name} grow online?</p>
+Seriez-vous ouvert à une discussion rapide sur la façon dont nous pourrions aider {company_name} à se développer en ligne ?
 
-  <p>Best regards,<br/>Your Name</p>
-</div>`,
+Cordialement,
+Zak`,
         niche: '',
     },
     {
         name: 'No Website Detected',
         type: 'email' as const,
-        subject: '{company_name} — your customers are looking for you online',
-        body: `<div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
-  <p>Hi,</p>
+        subject: '{company_name} — vos clients vous cherchent en ligne',
+        body: `Bonjour,
 
-  <p>I was looking for <strong>{company_name}</strong> online and noticed you don't seem to have a website yet.</p>
+Je cherchais {company_name} en ligne et j'ai remarqué que vous n'avez pas encore de site web.
 
-  <p>Did you know that 97% of consumers search online for local businesses? Without a website, you could be missing out on a significant number of potential customers.</p>
+Saviez-vous que 97% des consommateurs cherchent en ligne avant de visiter un commerce local ? Sans site web, vous pourriez passer à côté d'un nombre important de clients potentiels.
 
-  <p>We help businesses in {city} get online quickly with:</p>
+Nous aidons les entreprises à {city} à se mettre en ligne rapidement avec :
 
-  <ul>
-    <li>A professional, custom-designed website</li>
-    <li>Mobile-responsive design</li>
-    <li>Google Maps and SEO optimization</li>
-    <li>Easy-to-manage content</li>
-  </ul>
+- Un site web professionnel sur mesure
+- Un design responsive (adapté mobile)
+- Optimisation Google Maps et SEO
+- Un contenu facile à gérer
 
-  <p>Would you like to see some examples of what we've built for other {niche} businesses?</p>
+Voulez-vous voir des exemples de ce que nous avons réalisé pour d'autres entreprises de {niche} ?
 
-  <p>Best,<br/>Your Name</p>
-</div>`,
+Cordialement,
+Zak`,
         niche: '',
     },
     {
@@ -326,15 +320,7 @@ export default function TemplatesPage() {
         if (color) wrapSelection(`<span style="color: ${color}">`, '</span>');
     };
 
-    const toolbarActions = [
-        { icon: toolbarIcons.bold, label: 'Bold', action: formatBold },
-        { icon: toolbarIcons.italic, label: 'Italic', action: formatItalic },
-        { icon: toolbarIcons.underline, label: 'Underline', action: formatUnderline },
-        { icon: toolbarIcons.heading, label: 'Heading', action: formatHeading },
-        { icon: toolbarIcons.list, label: 'List', action: formatList },
-        { icon: toolbarIcons.link, label: 'Link', action: formatLink },
-        { icon: toolbarIcons.color, label: 'Color', action: formatColor },
-    ];
+    const toolbarActions: { icon: React.ReactNode; label: string; action: () => void }[] = [];
 
     return (
         <Sidebar>
@@ -607,7 +593,7 @@ export default function TemplatesPage() {
                                     {/* Body Editor with Toolbar */}
                                     <div className="form-group">
                                         <label className="form-label">
-                                            {tplType === 'whatsapp' ? 'Message Body (plain text)' : 'Body (HTML)'}
+                                            {tplType === 'whatsapp' ? 'Message Body (plain text)' : 'Body (plain text — use blank lines for paragraphs)'}
                                         </label>
 
                                         {/* Rich formatting toolbar (email only) */}
@@ -679,20 +665,19 @@ export default function TemplatesPage() {
                                             </div>
                                         )}
 
-                                        {(editorTab === 'write' || tplType === 'whatsapp') ? (
-                                            <textarea
-                                                ref={bodyRef}
-                                                className="form-textarea"
-                                                value={body}
-                                                onChange={e => setBody(e.target.value)}
-                                                onFocus={() => setActiveVarTarget('body')}
-                                                style={{ minHeight: 280, fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
-                                                placeholder={tplType === 'whatsapp'
-                                                    ? 'Write your WhatsApp message here... Use *bold* and _italic_ for formatting.'
-                                                    : 'Write your HTML email body here...'
-                                                }
-                                            />
-                                        ) : (
+                                        <textarea
+                                            ref={bodyRef}
+                                            className="form-textarea"
+                                            value={body}
+                                            onChange={e => setBody(e.target.value)}
+                                            onFocus={() => setActiveVarTarget('body')}
+                                            style={{ minHeight: 280, fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
+                                            placeholder={tplType === 'whatsapp'
+                                                ? 'Write your WhatsApp message here... Use *bold* and _italic_ for formatting.'
+                                                : 'Write your email here...\n\nUse blank lines for paragraphs.\nVariables like {company_name} will be replaced automatically.'
+                                            }
+                                        />
+                                        {editorTab === 'preview' && tplType === 'email' ? (
                                             <div
                                                 style={{
                                                     minHeight: 280,
@@ -702,10 +687,14 @@ export default function TemplatesPage() {
                                                     color: '#333',
                                                     border: '1px solid var(--border-primary)',
                                                     overflow: 'auto',
+                                                    whiteSpace: 'pre-wrap',
+                                                    lineHeight: 1.6,
+                                                    fontSize: '0.9rem',
                                                 }}
-                                                dangerouslySetInnerHTML={{ __html: renderPreview(body) }}
-                                            />
-                                        )}
+                                            >
+                                                {renderPreview(body)}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </div>
                             </div>
@@ -787,9 +776,13 @@ export default function TemplatesPage() {
                                                     background: '#fff',
                                                     borderRadius: 'var(--radius-md)',
                                                     color: '#333',
+                                                    whiteSpace: 'pre-wrap',
+                                                    lineHeight: 1.6,
+                                                    fontSize: '0.9rem',
                                                 }}
-                                                dangerouslySetInnerHTML={{ __html: renderPreview(previewBody) }}
-                                            />
+                                            >
+                                                {renderPreview(previewBody)}
+                                            </div>
                                         )}
                                     </div>
                                 </div>

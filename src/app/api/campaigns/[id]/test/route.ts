@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { sendEmail, renderTemplate, getSmtpConfig } from '@/lib/mailer';
+import { pickSmartTemplate } from '@/lib/campaign-utils';
 
 export async function POST(
     request: NextRequest,
@@ -32,11 +33,28 @@ export async function POST(
             testTemplate = await prisma.emailTemplate.findUnique({ where: { id: randomId } }) as any;
         }
 
-        // If smartSending, pick the first active template matching language
+        // If smartSending, pick the most appropriate template based on test data
         if (!testTemplate && campaign.smartSending) {
-            testTemplate = await prisma.emailTemplate.findFirst({
+            const allTemplates = await prisma.emailTemplate.findMany({
                 where: { isActive: true, language: campaign.language, type: campaign.channel },
-            }) as any;
+            });
+
+            // Mock lead for smart selection
+            const mockLead = {
+                displayName: 'Test Company',
+                city: 'Brussels',
+                websiteUri: 'www.example.com',
+                niche: 'electricians',
+                rating: 4.5,
+                userRatingCount: 127,
+                scoringSignals: {
+                    isAccessible: true,
+                    designScore: 75,
+                    performanceScore: 80,
+                }
+            };
+
+            testTemplate = pickSmartTemplate(mockLead, allTemplates) as any;
         }
 
         if (!testTemplate) {
@@ -57,7 +75,7 @@ export async function POST(
 
         // Always use the template's own subject (never campaign.subject)
         const subject = renderTemplate((testTemplate as any).subject, testVars);
-        const html = renderTemplate((testTemplate as any).body, testVars);
+        const body = renderTemplate((testTemplate as any).body, testVars);
 
         const smtp = await getSmtpConfig();
 
@@ -66,7 +84,8 @@ export async function POST(
             senderName = campaign.senderNames[Math.floor(Math.random() * campaign.senderNames.length)];
         }
 
-        const result = await sendEmail({ to: email, subject, html }, { ...smtp, senderName });
+        // Send as plain text to match production behavior
+        const result = await sendEmail({ to: email, subject, html: '', text: body }, { ...smtp, senderName });
 
         return NextResponse.json({
             success: result.success,

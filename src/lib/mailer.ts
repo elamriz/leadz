@@ -78,12 +78,17 @@ export async function sendEmail(options: EmailOptions, config?: SmtpConfig): Pro
         }
 
         const replyTo = options.replyTo || cfg.replyToEmail;
+        // If plain text is provided, send ONLY textContent (no htmlContent)
+        // This makes the email look like a personal message, not a newsletter
+        const contentFields = options.text
+            ? { textContent: options.text }
+            : { htmlContent: options.html };
+
         const payload = {
             sender: { email: senderEmail, name: cfg.senderName },
             to: [{ email: options.to }],
             subject: options.subject,
-            htmlContent: options.html,
-            ...(options.text && { textContent: options.text }),
+            ...contentFields,
             ...(options.tags && { tags: options.tags }),
             ...(replyTo && { replyTo: { email: replyTo } }),
         };
@@ -145,6 +150,12 @@ export function addUnsubscribeLink(html: string, unsubscribeUrl: string): string
     </div>
   `;
     return html + footer;
+}
+
+// ─── Add Unsubscribe Link (Plain Text) ──────────────────────
+export function addUnsubscribeLinkText(text: string, unsubscribeUrl: string): string {
+    const footer = `\n\n---\nSi vous ne souhaitez plus recevoir ces emails : ${unsubscribeUrl}`;
+    return text + footer;
 }
 
 // ─── Verify Brevo Connection ────────────────────────────────────

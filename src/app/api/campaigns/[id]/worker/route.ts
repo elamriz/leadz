@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { sendEmail, renderTemplate, addUnsubscribeLink, getSmtpConfig, formatCity } from '@/lib/mailer';
+import { sendEmail, renderTemplate, addUnsubscribeLinkText, getSmtpConfig, formatCity } from '@/lib/mailer';
 import { logAudit } from '@/lib/dedup';
+import { pickSmartTemplate, pickByTag } from '@/lib/campaign-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,8 +122,8 @@ export async function GET(
         };
 
         const subject = renderTemplate(selectedTemplate.subject, variables);
-        let html = renderTemplate(selectedTemplate.body, variables);
-        html = addUnsubscribeLink(html, `${process.env.NEXT_PUBLIC_APP_URL}/unsubscribe?email=${encodeURIComponent(emailAddress)}`);
+        let body = renderTemplate(selectedTemplate.body, variables);
+        body = addUnsubscribeLinkText(body, `${process.env.NEXT_PUBLIC_APP_URL}/unsubscribe?email=${encodeURIComponent(emailAddress)}`);
 
         // 3. Sender Name
         const smtpConfig = await getSmtpConfig();
@@ -131,11 +132,12 @@ export async function GET(
             senderName = campaign.senderNames[Math.floor(Math.random() * campaign.senderNames.length)];
         }
 
-        // 4. Send via Brevo with Campaign ID tag for stats
+        // 4. Send via Brevo with Campaign ID tag for stats (plain text to avoid spam)
         const result = await sendEmail({
             to: emailAddress,
             subject,
-            html,
+            html: '',
+            text: body,
             tags: [id],
         }, { ...smtpConfig, senderName });
 
@@ -192,31 +194,4 @@ export async function GET(
 }
 
 
-// --- Helper Functions (duplicated from original -- should ideally be in a lib) ---
-
-const pickByTag = (templates: any[], tag: string) => {
-    const matches = templates.filter((t: any) => t.tags.includes(tag));
-    if (matches.length === 0) return null;
-    return matches[Math.floor(Math.random() * matches.length)];
-};
-
-const pickSmartTemplate = (lead: any, templates: any[]) => {
-    const signal = lead.scoringSignals;
-
-    if (signal && signal.isAccessible === false) { return pickByTag(templates, 'inaccessible'); }
-
-    if (!lead.websiteUri || lead.websiteUri.length < 5) { return pickByTag(templates, 'no-website'); }
-
-    if (lead.rating && lead.rating >= 4.5) { return pickByTag(templates, 'reputation'); }
-
-    if (lead.websiteUri && lead.websiteUri.length >= 5) {
-        if (signal && (signal.designScore < 50 || signal.performanceScore < 40)) {
-            return pickByTag(templates, 'outdated-website');
-        }
-    }
-
-    const t = pickByTag(templates, 'general');
-    if (t) return t;
-
-    return templates[Math.floor(Math.random() * templates.length)];
-};
+// ─── Helpers moved to src/lib/campaign-utils.ts ───────────────────────

@@ -15,6 +15,8 @@ interface Campaign {
     noWebsiteOnly: boolean;
     status: string;
     dailyLimit: number;
+    minDelaySeconds: number;
+    maxDelaySeconds: number;
     cooldownDays: number;
     safeSendMode: boolean;
     totalSent: number;
@@ -28,7 +30,7 @@ interface Campaign {
     smartSending?: boolean;
     jobStatus?: 'idle' | 'running' | 'done';
     jobTotal?: number;
-    totalOpened?: number; // Fetched from stats
+    totalOpened?: number;
     _count: { sends: number };
     createdAt: string;
 }
@@ -94,7 +96,9 @@ function CampaignsContent() {
     const [dailyLimit, setDailyLimit] = useState('50');
     const [cooldownDays, setCooldownDays] = useState('30');
     const [smartSending, setSmartSending] = useState(false);
-    const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);  // For targeted campaigns
+    const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+    const [minDelay, setMinDelay] = useState('30');
+    const [maxDelay, setMaxDelay] = useState('90');
 
     // Initialize from URL params
     useEffect(() => {
@@ -149,6 +153,8 @@ function CampaignsContent() {
         setCooldownDays('30');
         setSmartSending(false);
         setSelectedLeadIds([]);
+        setMinDelay('30');
+        setMaxDelay('90');
     };
 
     const handleCreate = async () => {
@@ -174,8 +180,8 @@ function CampaignsContent() {
                     templateId: templateId || null,
                     templateIds,
                     dailyLimit: parseInt(dailyLimit),
-                    minDelaySeconds: 5,
-                    maxDelaySeconds: 45,
+                    minDelaySeconds: parseInt(minDelay),
+                    maxDelaySeconds: parseInt(maxDelay),
                     cooldownDays: parseInt(cooldownDays),
                     safeSendMode: safeSend,
                     smartSending,
@@ -247,6 +253,8 @@ function CampaignsContent() {
         setSmartSending(camp.smartSending || false);
         setDailyLimit(camp.dailyLimit.toString());
         setCooldownDays(camp.cooldownDays.toString());
+        setMinDelay((camp.minDelaySeconds || 30).toString());
+        setMaxDelay((camp.maxDelaySeconds || 90).toString());
 
         fetch(`/api/campaigns/${camp.id}`)
             .then(res => res.json())
@@ -814,6 +822,23 @@ function CampaignsContent() {
                                                 <input className="form-input" type="number" value={cooldownDays} onChange={e => setCooldownDays(e.target.value)} />
                                             </div>
                                         </div>
+
+                                        {/* Human-like delay config */}
+                                        <div className="form-group">
+                                            <label className="form-label">⏱ Délai entre chaque email (comportement humain)</label>
+                                            <div className="text-xs text-muted" style={{ marginBottom: 8 }}>Un délai aléatoire entre min et max sera appliqué entre chaque envoi pour éviter d{"'"}être détecté comme spam.</div>
+                                            <div className="form-row">
+                                                <div className="form-group">
+                                                    <label className="form-label text-xs">Min (secondes)</label>
+                                                    <input className="form-input" type="number" value={minDelay} onChange={e => setMinDelay(e.target.value)} min="5" />
+                                                </div>
+                                                <div className="form-group">
+                                                    <label className="form-label text-xs">Max (secondes)</label>
+                                                    <input className="form-input" type="number" value={maxDelay} onChange={e => setMaxDelay(e.target.value)} min="10" />
+                                                </div>
+                                            </div>
+                                            <div className="text-xs text-muted" style={{ marginTop: 4 }}>💡 Recommandé : 30-90 secondes pour un comportement naturel</div>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -977,27 +1002,46 @@ function WorkerPoller({ campaigns, onUpdate }: { campaigns: Campaign[], onUpdate
         const runningCampaigns = campaigns.filter(c => c.jobStatus === 'running');
         if (runningCampaigns.length === 0) return;
 
-        const intervals: NodeJS.Timeout[] = [];
+        const timeouts: NodeJS.Timeout[] = [];
+        const aborted = { current: false };
 
         runningCampaigns.forEach(camp => {
-            const interval = setInterval(async () => {
+            const minDelay = (camp.minDelaySeconds || 30) * 1000;
+            const maxDelay = (camp.maxDelaySeconds || 90) * 1000;
+
+            const poll = async () => {
+                if (aborted.current) return;
                 try {
                     const res = await fetch(`/api/campaigns/${camp.id}/worker`);
                     if (res.ok) {
                         const data = await res.json();
-                        // If we processed an item or status changed, update UI
                         if (data.processed > 0 || data.jobStatus !== 'running') {
                             onUpdate();
                         }
+                        // If job is done, stop polling
+                        if (data.jobStatus !== 'running') return;
                     }
                 } catch (err) {
                     console.error('Worker poll failed', err);
                 }
-            }, 3000); // Poll every 3 seconds
-            intervals.push(interval);
+
+                if (aborted.current) return;
+
+                // Schedule next poll with random human-like delay
+                const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay) + minDelay);
+                console.log(`[Worker] Next email in ${(randomDelay / 1000).toFixed(0)}s (${camp.name})`);
+                const timeout = setTimeout(poll, randomDelay);
+                timeouts.push(timeout);
+            };
+
+            // Start first poll immediately
+            poll();
         });
 
-        return () => intervals.forEach(clearInterval);
+        return () => {
+            aborted.current = true;
+            timeouts.forEach(clearTimeout);
+        };
     }, [campaigns, onUpdate]);
 
     return null;
